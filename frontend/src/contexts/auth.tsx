@@ -31,6 +31,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const loadUser = async () => {
       try {
         const storedUser = await AsyncStorage.getItem("@outfitlab:user");
+        console.log('📦 AuthProvider - usuario almacenado:', storedUser); // 👈 Log
         if (storedUser) {
           setUser(JSON.parse(storedUser));
         }
@@ -45,6 +46,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = async (newUser: AuthUser, token?: string) => {
+    console.log('🔐 AuthProvider - login:', newUser); // 👈 Log
     try {
       setUser(newUser);
       await AsyncStorage.setItem("@outfitlab:user", JSON.stringify(newUser));
@@ -58,10 +60,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = async () => {
+    console.log('🚪 AuthProvider - logout iniciado'); // 👈 Log
     try {
       setUser(null);
       await AsyncStorage.removeItem("@outfitlab:user");
       await AsyncStorage.removeItem("@outfitlab:token");
+      console.log('✅ AuthProvider - logout completado'); // 👈 Log
     } catch (e) {
       console.log("Error limpiando sesión:", e);
     }
