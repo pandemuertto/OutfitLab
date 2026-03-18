@@ -15,12 +15,12 @@ model Item {
   color       String?
   size        String?
   season      String?
-  category    Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   categoryId  String?
-  images      Image[]
-  tags        ItemTag[]
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+  images      Image[]
+  category    Category? @relation(fields: [categoryId], references: [id])
+  tags        ItemTag[]
 }
 
 model Category {
@@ -33,9 +33,9 @@ model Image {
   id        String   @id @default(cuid())
   url       String
   mime      String?
-  item      Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
   itemId    String
   createdAt DateTime @default(now())
+  item      Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
 }
 
 model Tag {
@@ -45,10 +45,10 @@ model Tag {
 }
 
 model ItemTag {
-  item   Item   @relation(fields: [itemId], references: [id], onDelete: Cascade)
   itemId String
-  tag    Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
   tagId  String
+  item   Item   @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  tag    Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
 
   @@id([itemId, tagId])
 }
@@ -60,17 +60,14 @@ model Usuario {
   name              String?
   createdAt         DateTime           @default(now()) @map("created_at")
   updatedAt         DateTime           @updatedAt @map("updated_at")
+  calendarEvents    CalendarEvent[]
   authProviders     AuthProvider[]
   prendas           Prenda[]
+  exploreComments   ExploreComment[]
+  exploreLikes      ExploreLike[]
+  explorePosts      ExplorePost[]
   outfits           Outfit[]           @relation("UsuarioOutfits")
   outfitCollections OutfitCollection[] @relation("UsuarioOutfitCollections")
-
-  // 🔹 Relación con posts de Explorar
-  explorePosts ExplorePost[]
-
-  // 🔹 NUEVOS: back-relations para likes y comentarios en Explorar
-  exploreLikes    ExploreLike[]
-  exploreComments ExploreComment[]
 
   @@map("usuario")
 }
@@ -79,27 +76,26 @@ model AuthProvider {
   id         String  @id @default(cuid())
   provider   String
   providerId String  @map("provider_id")
-  user       Usuario @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId     String  @map("user_id")
+  user       Usuario @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerId])
   @@index([userId])
   @@map("auth_providers")
 }
 
-// ACTUALIZADO CON CLASIFICACIÓN IA
 model Prenda {
   id          Int            @id @default(autoincrement())
-  user        Usuario        @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId      String         @map("user_id")
   imageUrl    String         @map("image_url")
-  type        String? // tipo manual (opcional)
-  color       String? // color (opcional)
-  category    String? // categoría clasificada por IA
-  brand       String? // marca (opcional)
-  confidence  Float? // confianza de clasificación IA (0-1)
+  type        String?
+  color       String?
+  category    String?
+  brand       String?
+  confidence  Float?
   createdAt   DateTime       @default(now()) @map("created_at")
   updatedAt   DateTime       @updatedAt @map("updated_at")
+  user        Usuario        @relation(fields: [userId], references: [id], onDelete: Cascade)
   outfitItems OutfitPrenda[] @relation("PrendaOutfitItems")
 
   @@index([userId], map: "idx_clothes_user")
@@ -120,122 +116,112 @@ model Like {
 
 model OutfitCollection {
   id          String   @id @default(cuid())
-  user        Usuario  @relation("UsuarioOutfitCollections", fields: [userId], references: [id], onDelete: Cascade)
   userId      String   @map("user_id")
   name        String
   description String?
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
-
-  outfits Outfit[]
+  outfits     Outfit[]
+  user        Usuario  @relation("UsuarioOutfitCollections", fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("outfit_collection")
 }
 
 model Outfit {
-  id           String            @id @default(cuid())
-  user         Usuario           @relation("UsuarioOutfits", fields: [userId], references: [id], onDelete: Cascade)
-  userId       String            @map("user_id")
-  collection   OutfitCollection? @relation(fields: [collectionId], references: [id])
-  collectionId String?           @map("collection_id")
-  name         String?
-  occasion     String?
-  dressCode    String?
-  weather      String?
-  createdAt    DateTime          @default(now()) @map("created_at")
-  updatedAt    DateTime          @updatedAt @map("updated_at")
-
-  items        OutfitPrenda[]
-  photos       OutfitPhoto[]
-  explorePosts ExplorePost[]
+  id             String            @id @default(cuid())
+  userId         String            @map("user_id")
+  collectionId   String?           @map("collection_id")
+  name           String?
+  occasion       String?
+  dressCode      String?
+  weather        String?
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt @map("updated_at")
+  calendarEvents CalendarEvent[]
+  explorePosts   ExplorePost[]
+  collection     OutfitCollection? @relation(fields: [collectionId], references: [id])
+  user           Usuario           @relation("UsuarioOutfits", fields: [userId], references: [id], onDelete: Cascade)
+  photos         OutfitPhoto[]
+  items          OutfitPrenda[]
 
   @@map("outfit")
 }
 
 model OutfitPrenda {
-  outfit   Outfit @relation(fields: [outfitId], references: [id], onDelete: Cascade)
   outfitId String @map("outfit_id")
-
-  prenda   Prenda @relation("PrendaOutfitItems", fields: [prendaId], references: [id], onDelete: Cascade)
   prendaId Int    @map("prenda_id")
+  outfit   Outfit @relation(fields: [outfitId], references: [id], onDelete: Cascade)
+  prenda   Prenda @relation("PrendaOutfitItems", fields: [prendaId], references: [id], onDelete: Cascade)
 
   @@id([outfitId, prendaId])
   @@map("outfit_prenda")
 }
 
 model OutfitPhoto {
-  id  String @id @default(cuid())
-  url String @default("") // 👈 valor por defecto para filas viejas
-
-  outfit   Outfit @relation(fields: [outfitId], references: [id], onDelete: Cascade)
-  outfitId String @map("outfit_id")
-
+  id        String   @id @default(cuid())
+  url       String   @default("")
+  outfitId  String   @map("outfit_id")
   createdAt DateTime @default(now()) @map("created_at")
+  outfit    Outfit   @relation(fields: [outfitId], references: [id], onDelete: Cascade)
 
   @@map("outfit_photo")
 }
 
 model ExplorePost {
-  id String @id @default(cuid())
-
-  outfit   Outfit @relation(fields: [outfitId], references: [id], onDelete: Cascade)
-  outfitId String @map("outfit_id")
-
-  user   Usuario @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId String  @map("user_id")
-
+  id        String           @id @default(cuid())
+  outfitId  String           @map("outfit_id")
+  userId    String           @map("user_id")
   title     String
-  imageUrl  String   @map("image_url")
-  likes     Int      @default(0) // contador total (lo mantenemos)
-  saves     Int      @default(0)
-  style     String? // Casual / Formal / Deportivo / etc.
-  createdAt DateTime @default(now()) @map("created_at")
-
-  // 👇 NUEVAS relaciones
-  likesList ExploreLike[]
+  imageUrl  String           @map("image_url")
+  likes     Int              @default(0)
+  saves     Int              @default(0)
+  style     String?
+  createdAt DateTime         @default(now()) @map("created_at")
   comments  ExploreComment[]
+  likesList ExploreLike[]
+  outfit    Outfit           @relation(fields: [outfitId], references: [id], onDelete: Cascade)
+  user      Usuario          @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("explore_post")
 }
 
 model ExploreLike {
   id        String      @id @default(cuid())
-  user      Usuario     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId    String      @map("user_id")
-  post      ExplorePost @relation(fields: [postId], references: [id], onDelete: Cascade)
   postId    String      @map("post_id")
   createdAt DateTime    @default(now()) @map("created_at")
+  post      ExplorePost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user      Usuario     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, postId])
   @@map("explore_like")
 }
 
 model ExploreComment {
-  id        String   @id @default(cuid())
+  id        String      @id @default(cuid())
   content   String
-  createdAt DateTime @default(now()) @map("created_at")
-
-  user   Usuario     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId String      @map("user_id")
-  post   ExplorePost @relation(fields: [postId], references: [id], onDelete: Cascade)
-  postId String      @map("post_id")
+  createdAt DateTime    @default(now()) @map("created_at")
+  userId    String      @map("user_id")
+  postId    String      @map("post_id")
+  post      ExplorePost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user      Usuario     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("explore_comment")
 }
 
 model CalendarEvent {
-  id          String   @id @default(cuid())
+  id          String    @id @default(dbgenerated("(gen_random_uuid())::text"))
   userId      String
-  user        Usuario  @relation(fields: [userId], references: [id], onDelete: Cascade)
   title       String
   description String?
-  date        DateTime // Fecha del evento
-  startTime   String?  // Hora de inicio (formato "HH:MM")
-  endTime     String?  // Hora de fin
-  outfitId    String?  // Opcional: outfit sugerido para el evento
-  outfit      Outfit?  @relation(fields: [outfitId], references: [id])
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  date        DateTime  @db.Timestamptz(6)
+  startTime   String?
+  endTime     String?
+  outfitId    String?
+  createdAt   DateTime? @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime? @default(now()) @updatedAt @db.Timestamptz(6)
+  outfit      Outfit?   @relation(fields: [outfitId], references: [id], onUpdate: NoAction)
+  user        Usuario   @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([userId])
   @@index([date])
