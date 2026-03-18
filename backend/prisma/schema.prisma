@@ -222,3 +222,21 @@ model ExploreComment {
 
   @@map("explore_comment")
 }
+
+model CalendarEvent {
+  id          String   @id @default(cuid())
+  userId      String
+  user        Usuario  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  date        DateTime // Fecha del evento
+  startTime   String?  // Hora de inicio (formato "HH:MM")
+  endTime     String?  // Hora de fin
+  outfitId    String?  // Opcional: outfit sugerido para el evento
+  outfit      Outfit?  @relation(fields: [outfitId], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@index([date])
+}

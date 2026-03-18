@@ -18,6 +18,7 @@ const recommendRoutes = require('./routes/recommend.routes');
 const outfitsRoutes = require('./routes/outfits.routes');
 const collectionsRoutes = require('./routes/collections.routes');
 const exploreRoutes = require('./routes/explore.routes');
+const calendarRoutes = require('./routes/calendar.routes');
 
 
 const app = express();
@@ -62,6 +63,9 @@ app.use('/api/explore', exploreRoutes);
 
 /* ---------- API de recomendaciones ---------- */
 app.use('/api/recommend', recommendRoutes);
+
+/* ---------- API de calendario ---------- */
+app.use('/api/calendar', calendarRoutes);
 
 /* ---------- 404 y errores ---------- */
 app.use((req, res) => {
