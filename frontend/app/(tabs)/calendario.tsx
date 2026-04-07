@@ -1,4 +1,1623 @@
 // app/(tabs)/calendario.tsx
+// import React, { useState, useEffect } from "react";
+// import {
+//   View,
+//   Text,
+//   StyleSheet,
+//   ScrollView,
+//   TouchableOpacity,
+//   Modal,
+//   TextInput,
+//   Alert,
+//   ActivityIndicator,
+//   Image,
+//   Platform,
+//   FlatList
+// } from "react-native";
+// import { Ionicons } from "@expo/vector-icons";
+// import { useAuth } from "../../src/contexts/auth";
+// import { 
+//   getUserEvents, 
+//   createEvent, 
+//   updateEvent, 
+//   deleteEvent,
+//   CalendarEvent 
+// } from "../../src/services/calendar.service";
+// import { getUserOutfits } from "../../src/services/outfits.service";
+
+// // --- PALETA DE COLORES (consistente con el proyecto) ---
+// const colors = {
+//   bg: '#FFFFFF',
+//   text: '#1E232A',
+//   primary: '#667eea', // Azul del proyecto
+//   secondary: '#40a585ff', // Verde del proyecto
+//   cta: '#E07A5F',
+//   surface: '#FFFFFF',
+//   gray: '#D5D1C9',
+//   lightGray: '#f5f5f5',
+//   border: '#ddd',
+// };
+
+// // Tipo para diferenciar entre evento normal y viaje
+// type CalendarItemType = 'event' | 'trip';
+
+// // Generar días del mes
+// const getDaysInMonth = (date: Date) => {
+//   const year = date.getFullYear();
+//   const month = date.getMonth();
+//   const firstDay = new Date(year, month, 1);
+//   const lastDay = new Date(year, month + 1, 0);
+  
+//   const days = [];
+//   const startDay = firstDay.getDay(); // 0 = domingo
+  
+//   // Ajustar para que la semana empiece en lunes (1 = lunes)
+//   const adjustedStartDay = startDay === 0 ? 6 : startDay - 1;
+  
+//   // Añadir días vacíos al inicio
+//   for (let i = 0; i < adjustedStartDay; i++) {
+//     days.push(null);
+//   }
+  
+//   // Añadir días del mes
+//   for (let i = 1; i <= lastDay.getDate(); i++) {
+//     const currentDate = new Date(year, month, i);
+//     days.push({
+//       date: currentDate,
+//       dayNumber: i,
+//       isToday: currentDate.toDateString() === new Date().toDateString()
+//     });
+//   }
+  
+//   return days;
+// };
+
+// // Selector de hora
+// const TimePickerModal = ({ visible, onClose, onSelect, currentTime = '' }) => {
+//   const [selectedHour, setSelectedHour] = useState('12');
+//   const [selectedMinute, setSelectedMinute] = useState('00');
+//   const [selectedPeriod, setSelectedPeriod] = useState('AM');
+
+//   useEffect(() => {
+//     if (currentTime) {
+//       const [time, period] = currentTime.split(' ');
+//       const [hour, minute] = time.split(':');
+//       setSelectedHour(hour);
+//       setSelectedMinute(minute);
+//       setSelectedPeriod(period || 'AM');
+//     }
+//   }, [currentTime]);
+
+//   const hours = Array.from({ length: 12 }, (_, i) => (i + 1).toString().padStart(2, '0'));
+//   const minutes = ['00', '15', '30', '45'];
+
+//   const handleConfirm = () => {
+//     onSelect(`${selectedHour}:${selectedMinute} ${selectedPeriod}`);
+//     onClose();
+//   };
+
+//   return (
+//     <Modal visible={visible} transparent animationType="fade">
+//       <View style={styles.modalOverlay}>
+//         <View style={styles.pickerModal}>
+//           <Text style={styles.pickerTitle}>Seleccionar Hora</Text>
+          
+//           <View style={styles.timePickerContainer}>
+//             {/* Horas */}
+//             <View style={styles.pickerColumn}>
+//               <Text style={styles.pickerLabel}>Hora</Text>
+//               <ScrollView style={styles.pickerScroll} showsVerticalScrollIndicator={false}>
+//                 {hours.map(hour => (
+//                   <TouchableOpacity
+//                     key={hour}
+//                     style={[
+//                       styles.pickerItem,
+//                       selectedHour === hour && styles.pickerItemSelected
+//                     ]}
+//                     onPress={() => setSelectedHour(hour)}
+//                   >
+//                     <Text style={[
+//                       styles.pickerItemText,
+//                       selectedHour === hour && styles.pickerItemTextSelected
+//                     ]}>{hour}</Text>
+//                   </TouchableOpacity>
+//                 ))}
+//               </ScrollView>
+//             </View>
+
+//             {/* Minutos */}
+//             <View style={styles.pickerColumn}>
+//               <Text style={styles.pickerLabel}>Minuto</Text>
+//               <ScrollView style={styles.pickerScroll} showsVerticalScrollIndicator={false}>
+//                 {minutes.map(minute => (
+//                   <TouchableOpacity
+//                     key={minute}
+//                     style={[
+//                       styles.pickerItem,
+//                       selectedMinute === minute && styles.pickerItemSelected
+//                     ]}
+//                     onPress={() => setSelectedMinute(minute)}
+//                   >
+//                     <Text style={[
+//                       styles.pickerItemText,
+//                       selectedMinute === minute && styles.pickerItemTextSelected
+//                     ]}>{minute}</Text>
+//                   </TouchableOpacity>
+//                 ))}
+//               </ScrollView>
+//             </View>
+
+//             {/* AM/PM */}
+//             <View style={styles.pickerColumn}>
+//               <Text style={styles.pickerLabel}>Periodo</Text>
+//               {['AM', 'PM'].map(period => (
+//                 <TouchableOpacity
+//                   key={period}
+//                   style={[
+//                     styles.periodButton,
+//                     selectedPeriod === period && styles.periodButtonSelected
+//                   ]}
+//                   onPress={() => setSelectedPeriod(period)}
+//                 >
+//                   <Text style={[
+//                     styles.periodButtonText,
+//                     selectedPeriod === period && styles.periodButtonTextSelected
+//                   ]}>{period}</Text>
+//                 </TouchableOpacity>
+//               ))}
+//             </View>
+//           </View>
+
+//           <View style={styles.pickerButtons}>
+//             <TouchableOpacity style={[styles.pickerButton, styles.pickerButtonCancel]} onPress={onClose}>
+//               <Text style={styles.pickerButtonTextCancel}>Cancelar</Text>
+//             </TouchableOpacity>
+//             <TouchableOpacity style={[styles.pickerButton, styles.pickerButtonConfirm]} onPress={handleConfirm}>
+//               <Text style={styles.pickerButtonTextConfirm}>Confirmar</Text>
+//             </TouchableOpacity>
+//           </View>
+//         </View>
+//       </View>
+//     </Modal>
+//   );
+// };
+
+// // Selector de fecha (mini calendario)
+// const DatePickerModal = ({ visible, onClose, onSelect, currentDate = '' }) => {
+//   const [selectedDate, setSelectedDate] = useState(new Date());
+//   const [currentMonth, setCurrentMonth] = useState(new Date());
+
+//   useEffect(() => {
+//     if (currentDate) {
+//       setSelectedDate(new Date(currentDate));
+//       setCurrentMonth(new Date(currentDate));
+//     }
+//   }, [currentDate]);
+
+//   const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+//     'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+  
+//   const weekDays = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
+
+//   const getDaysInMonth = (date: Date) => {
+//     const year = date.getFullYear();
+//     const month = date.getMonth();
+//     const firstDay = new Date(year, month, 1);
+//     const lastDay = new Date(year, month + 1, 0);
+    
+//     const days = [];
+//     const startDay = firstDay.getDay();
+//     const adjustedStartDay = startDay === 0 ? 6 : startDay - 1;
+    
+//     for (let i = 0; i < adjustedStartDay; i++) {
+//       days.push(null);
+//     }
+    
+//     for (let i = 1; i <= lastDay.getDate(); i++) {
+//       days.push(new Date(year, month, i));
+//     }
+    
+//     return days;
+//   };
+
+//   const days = getDaysInMonth(currentMonth);
+
+//   const handlePrevMonth = () => {
+//     setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1));
+//   };
+
+//   const handleNextMonth = () => {
+//     setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1));
+//   };
+
+//   const isSelectedDate = (date: Date) => {
+//     return date.toDateString() === selectedDate.toDateString();
+//   };
+
+//   const handleSelectDate = (date: Date) => {
+//     setSelectedDate(date);
+//   };
+
+//   const handleConfirm = () => {
+//     onSelect(selectedDate.toISOString().split('T')[0]);
+//     onClose();
+//   };
+
+//   return (
+//     <Modal visible={visible} transparent animationType="fade">
+//       <View style={styles.modalOverlay}>
+//         <View style={styles.pickerModal}>
+//           <Text style={styles.pickerTitle}>Seleccionar Fecha</Text>
+          
+//           {/* Selector de mes */}
+//           <View style={styles.datePickerHeader}>
+//             <TouchableOpacity onPress={handlePrevMonth}>
+//               <Ionicons name="chevron-back" size={24} color={colors.primary} />
+//             </TouchableOpacity>
+//             <Text style={styles.datePickerMonth}>
+//               {monthNames[currentMonth.getMonth()]} {currentMonth.getFullYear()}
+//             </Text>
+//             <TouchableOpacity onPress={handleNextMonth}>
+//               <Ionicons name="chevron-forward" size={24} color={colors.primary} />
+//             </TouchableOpacity>
+//           </View>
+
+//           {/* Días de la semana */}
+//           <View style={styles.weekDaysRow}>
+//             {weekDays.map((day, index) => (
+//               <Text key={index} style={styles.weekDayText}>{day}</Text>
+//             ))}
+//           </View>
+
+//           {/* Días del mes */}
+//           <View style={styles.daysGrid}>
+//             {days.map((date, index) => (
+//               <TouchableOpacity
+//                 key={index}
+//                 style={[
+//                   styles.datePickerDay,
+//                   date && isSelectedDate(date) && styles.datePickerDaySelected
+//                 ]}
+//                 onPress={() => date && handleSelectDate(date)}
+//                 disabled={!date}
+//               >
+//                 {date && (
+//                   <Text style={[
+//                     styles.datePickerDayText,
+//                     isSelectedDate(date) && styles.datePickerDayTextSelected
+//                   ]}>
+//                     {date.getDate()}
+//                   </Text>
+//                 )}
+//               </TouchableOpacity>
+//             ))}
+//           </View>
+
+//           <View style={styles.pickerButtons}>
+//             <TouchableOpacity style={[styles.pickerButton, styles.pickerButtonCancel]} onPress={onClose}>
+//               <Text style={styles.pickerButtonTextCancel}>Cancelar</Text>
+//             </TouchableOpacity>
+//             <TouchableOpacity style={[styles.pickerButton, styles.pickerButtonConfirm]} onPress={handleConfirm}>
+//               <Text style={styles.pickerButtonTextConfirm}>Confirmar</Text>
+//             </TouchableOpacity>
+//           </View>
+//         </View>
+//       </View>
+//     </Modal>
+//   );
+// };
+
+// export default function CalendarioScreen() {
+//   const { user } = useAuth();
+//   const [activeTab, setActiveTab] = useState('calendar');
+//   const [selectedDay, setSelectedDay] = useState<number | null>(null);
+//   const [currentMonth, setCurrentMonth] = useState(new Date());
+//   const [calendarDays, setCalendarDays] = useState<any[]>([]);
+//   const [events, setEvents] = useState<CalendarEvent[]>([]);
+//   const [trips, setTrips] = useState<CalendarEvent[]>([]);
+//   const [loading, setLoading] = useState(false);
+//   const [modalVisible, setModalVisible] = useState(false);
+//   const [modalType, setModalType] = useState<CalendarItemType>('event');
+//   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+//   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
+//   const [userOutfits, setUserOutfits] = useState<any[]>([]);
+  
+//   // Pickers
+//   const [showStartTimePicker, setShowStartTimePicker] = useState(false);
+//   const [showEndTimePicker, setShowEndTimePicker] = useState(false);
+//   const [showStartDatePicker, setShowStartDatePicker] = useState(false);
+//   const [showEndDatePicker, setShowEndDatePicker] = useState(false);
+//   const [showEventDatePicker, setShowEventDatePicker] = useState(false);
+
+//   // Form state
+//   const [formTitle, setFormTitle] = useState("");
+//   const [formDescription, setFormDescription] = useState("");
+//   const [formStartTime, setFormStartTime] = useState("");
+//   const [formEndTime, setFormEndTime] = useState("");
+//   const [formOutfitId, setFormOutfitId] = useState("");
+//   const [formDestination, setFormDestination] = useState("");
+//   const [formStartDate, setFormStartDate] = useState("");
+//   const [formEndDate, setFormEndDate] = useState("");
+
+//   // Meses en español
+//   const monthNames = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO',
+//     'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];
+
+//   // Actualizar días del calendario cuando cambia el mes
+//   useEffect(() => {
+//     setCalendarDays(getDaysInMonth(currentMonth));
+//   }, [currentMonth]);
+
+//   // Cargar datos
+//   useEffect(() => {
+//     if (user?.id) {
+//       loadEvents();
+//       loadTrips();
+//       loadOutfits();
+//     }
+//   }, [user?.id, currentMonth]);
+
+//   const loadEvents = async () => {
+//     if (!user?.id) return;
+//     setLoading(true);
+//     try {
+//       const month = currentMonth.getMonth() + 1;
+//       const year = currentMonth.getFullYear();
+//       const data = await getUserEvents(user.id, month, year);
+//       const normalEvents = data.filter(e => !(e as any).isTrip);
+//       setEvents(normalEvents);
+//     } catch (error) {
+//       console.error("Error cargando eventos:", error);
+//     } finally {
+//       setLoading(false);
+//     }
+//   };
+
+//   const loadTrips = async () => {
+//     if (!user?.id) return;
+//     try {
+//       const data = await getUserEvents(user.id);
+//       const tripsData = data.filter(e => (e as any).isTrip);
+//       setTrips(tripsData);
+//     } catch (error) {
+//       console.error("Error cargando viajes:", error);
+//     }
+//   };
+
+//   const loadOutfits = async () => {
+//     if (!user?.id) return;
+//     try {
+//       const data = await getUserOutfits(user.id);
+//       setUserOutfits(data);
+//     } catch (error) {
+//       console.error("Error cargando outfits:", error);
+//     }
+//   };
+
+//   const handlePrevMonth = () => {
+//     setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1));
+//   };
+
+//   const handleNextMonth = () => {
+//     setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1));
+//   };
+
+//   const handleAddEvent = () => {
+//     setModalType('event');
+//     setSelectedEvent(null);
+//     setFormTitle("");
+//     setFormDescription("");
+//     setFormStartTime("");
+//     setFormEndTime("");
+//     setFormOutfitId("");
+//     setModalVisible(true);
+//   };
+
+//   const handleAddTrip = () => {
+//     setModalType('trip');
+//     setSelectedEvent(null);
+//     setFormTitle("");
+//     setFormDescription("");
+//     setFormDestination("");
+//     setFormStartDate("");
+//     setFormEndDate("");
+//     setFormOutfitId("");
+//     setModalVisible(true);
+//   };
+
+//   const handleDayPress = (dayData: any) => {
+//     if (!dayData) return;
+    
+//     setSelectedDay(dayData.dayNumber);
+//     const dateStr = dayData.date.toISOString().split('T')[0];
+//     setSelectedDate(dateStr);
+    
+//     // Buscar evento para ese día
+//     const dayEvent = events.find(e => {
+//       const eventDate = new Date(e.date);
+//       return eventDate.getDate() === dayData.dayNumber &&
+//              eventDate.getMonth() === currentMonth.getMonth() &&
+//              eventDate.getFullYear() === currentMonth.getFullYear();
+//     });
+    
+//     if (dayEvent) {
+//       setSelectedEvent(dayEvent);
+//       setFormTitle(dayEvent.title);
+//       setFormDescription(dayEvent.description || "");
+//       setFormStartTime(dayEvent.startTime || "");
+//       setFormEndTime(dayEvent.endTime || "");
+//       setFormOutfitId(dayEvent.outfitId || "");
+//       setModalType('event');
+//     } else {
+//       setSelectedEvent(null);
+//       setFormTitle("");
+//       setFormDescription("");
+//       setFormStartTime("");
+//       setFormEndTime("");
+//       setFormOutfitId("");
+//       setModalType('event');
+//     }
+    
+//     setModalVisible(true);
+//   };
+
+//   const handleSaveEvent = async () => {
+//     if (!user?.id) return;
+    
+//     if (modalType === 'event') {
+//       if (!formTitle.trim() || !selectedDate) {
+//         Alert.alert("Error", "El título y la fecha son requeridos");
+//         return;
+//       }
+
+//       try {
+//         if (selectedEvent) {
+//           await updateEvent(selectedEvent.id, {
+//             title: formTitle,
+//             description: formDescription || undefined,
+//             startTime: formStartTime || undefined,
+//             endTime: formEndTime || undefined,
+//             outfitId: formOutfitId || undefined
+//           });
+//           Alert.alert("Éxito", "Evento actualizado");
+//         } else {
+//           await createEvent({
+//             userId: user.id,
+//             title: formTitle,
+//             description: formDescription || undefined,
+//             date: selectedDate,
+//             startTime: formStartTime || undefined,
+//             endTime: formEndTime || undefined,
+//             outfitId: formOutfitId || undefined,
+//             isTrip: false
+//           });
+//           Alert.alert("Éxito", "Evento creado");
+//         }
+        
+//         setModalVisible(false);
+//         loadEvents();
+//       } catch (error) {
+//         console.error("Error guardando evento:", error);
+//         Alert.alert("Error", "No se pudo guardar el evento");
+//       }
+//     } else {
+//       if (!formTitle.trim() || !formDestination.trim() || !formStartDate || !formEndDate) {
+//         Alert.alert("Error", "Todos los campos son requeridos para el viaje");
+//         return;
+//       }
+
+//       try {
+//         if (selectedEvent) {
+//           await updateEvent(selectedEvent.id, {
+//             title: formTitle,
+//             description: formDescription || undefined,
+//             destination: formDestination,
+//             startDate: formStartDate,
+//             endDate: formEndDate,
+//             outfitId: formOutfitId || undefined,
+//             isTrip: true
+//           });
+//           Alert.alert("Éxito", "Viaje actualizado");
+//         } else {
+//           await createEvent({
+//             userId: user.id,
+//             title: formTitle,
+//             description: formDescription || undefined,
+//             destination: formDestination,
+//             startDate: formStartDate,
+//             endDate: formEndDate,
+//             outfitId: formOutfitId || undefined,
+//             isTrip: true
+//           });
+//           Alert.alert("Éxito", "Viaje creado");
+//         }
+        
+//         setModalVisible(false);
+//         loadTrips();
+//       } catch (error) {
+//         console.error("Error guardando viaje:", error);
+//         Alert.alert("Error", "No se pudo guardar el viaje");
+//       }
+//     }
+//   };
+
+//   const handleDeleteEvent = async () => {
+//     if (!selectedEvent) return;
+    
+//     if (Platform.OS === 'web') {
+//       const confirm = window.confirm("¿Eliminar este elemento?");
+//       if (confirm) {
+//         try {
+//           await deleteEvent(selectedEvent.id);
+//           Alert.alert("Éxito", "Elemento eliminado");
+//           setModalVisible(false);
+//           if (modalType === 'event') {
+//             loadEvents();
+//           } else {
+//             loadTrips();
+//           }
+//         } catch (error) {
+//           console.error("Error eliminando:", error);
+//           Alert.alert("Error", "No se pudo eliminar");
+//         }
+//       }
+//     } else {
+//       Alert.alert(
+//         "Eliminar",
+//         "¿Estás seguro?",
+//         [
+//           { text: "Cancelar", style: "cancel" },
+//           {
+//             text: "Eliminar",
+//             style: "destructive",
+//             onPress: async () => {
+//               try {
+//                 await deleteEvent(selectedEvent.id);
+//                 Alert.alert("Éxito", "Elemento eliminado");
+//                 setModalVisible(false);
+//                 if (modalType === 'event') {
+//                   loadEvents();
+//                 } else {
+//                   loadTrips();
+//                 }
+//               } catch (error) {
+//                 console.error("Error eliminando:", error);
+//                 Alert.alert("Error", "No se pudo eliminar");
+//               }
+//             }
+//           }
+//         ]
+//       );
+//     }
+//   };
+
+//   // Obtener eventos del día seleccionado
+//   const getSelectedDayEvents = () => {
+//     if (selectedDay === null) return [];
+    
+//     return events.filter(e => {
+//       const eventDate = new Date(e.date);
+//       return eventDate.getDate() === selectedDay &&
+//              eventDate.getMonth() === currentMonth.getMonth() &&
+//              eventDate.getFullYear() === currentMonth.getFullYear();
+//     });
+//   };
+
+//   return (
+//     <View style={[styles.container, { backgroundColor: colors.bg }]}>
+//       {/* Header */}
+//       <View style={styles.header}>
+//         <Text style={styles.headerTitle}>Planificador</Text>
+//       </View>
+
+//       {/* Tabs */}
+//       <View style={styles.tabContainer}>
+//         <TouchableOpacity 
+//           style={[styles.tab, activeTab === 'calendar' && styles.tabActive]}
+//           onPress={() => setActiveTab('calendar')}
+//         >
+//           <Text style={[styles.tabText, activeTab === 'calendar' && styles.tabTextActive]}>
+//             Calendario
+//           </Text>
+//         </TouchableOpacity>
+//         <TouchableOpacity 
+//           style={[styles.tab, activeTab === 'trips' && styles.tabActive]}
+//           onPress={() => setActiveTab('trips')}
+//         >
+//           <Text style={[styles.tabText, activeTab === 'trips' && styles.tabTextActive]}>
+//             Mis Viajes
+//           </Text>
+//         </TouchableOpacity>
+//       </View>
+
+//       {/* Botones flotantes */}
+//       {activeTab === 'calendar' && (
+//         <TouchableOpacity style={[styles.fab, { backgroundColor: colors.primary }]} onPress={handleAddEvent}>
+//           <Ionicons name="calendar-outline" size={20} color="white" />
+//           <Text style={styles.fabText}>Nuevo Evento</Text>
+//         </TouchableOpacity>
+//       )}
+      
+//       {activeTab === 'trips' && (
+//         <TouchableOpacity style={[styles.fab, { backgroundColor: colors.secondary }]} onPress={handleAddTrip}>
+//           <Ionicons name="airplane-outline" size={20} color="white" />
+//           <Text style={styles.fabText}>Nuevo Viaje</Text>
+//         </TouchableOpacity>
+//       )}
+
+//       {activeTab === 'calendar' ? (
+//         /* ========== VISTA CALENDARIO ========== */
+//         <ScrollView showsVerticalScrollIndicator={false}>
+//           {/* Selector de mes */}
+//           <View style={styles.monthSelector}>
+//             <TouchableOpacity onPress={handlePrevMonth} style={styles.monthButton}>
+//               <Ionicons name="chevron-back" size={20} color={colors.primary} />
+//             </TouchableOpacity>
+//             <Text style={styles.monthText}>
+//               {monthNames[currentMonth.getMonth()]} {currentMonth.getFullYear()}
+//             </Text>
+//             <TouchableOpacity onPress={handleNextMonth} style={styles.monthButton}>
+//               <Ionicons name="chevron-forward" size={20} color={colors.primary} />
+//             </TouchableOpacity>
+//           </View>
+
+//           {/* Días de la semana */}
+//           <View style={styles.weekDaysRow}>
+//             {['L', 'M', 'M', 'J', 'V', 'S', 'D'].map((day, index) => (
+//               <Text key={index} style={styles.weekDayText}>{day}</Text>
+//             ))}
+//           </View>
+
+//           {/* Calendario completo - SIN PUNTITOS AZULES */}
+//           <View style={styles.calendarGrid}>
+//             {calendarDays.map((dayData, index) => (
+//               <TouchableOpacity
+//                 key={index}
+//                 style={[
+//                   styles.calendarDay,
+//                   dayData?.isToday && styles.todayDay,
+//                   selectedDay === dayData?.dayNumber && styles.selectedDay
+//                 ]}
+//                 onPress={() => handleDayPress(dayData)}
+//                 disabled={!dayData}
+//               >
+//                 {dayData && (
+//                   <Text style={[
+//                     styles.calendarDayText,
+//                     dayData.isToday && styles.todayDayText,
+//                     selectedDay === dayData.dayNumber && styles.selectedDayText
+//                   ]}>
+//                     {dayData.dayNumber}
+//                   </Text>
+//                 )}
+//               </TouchableOpacity>
+//             ))}
+//           </View>
+
+//           {/* Eventos del día */}
+//           <View style={styles.eventsContainer}>
+//             <Text style={styles.sectionTitle}>
+//               Eventos {selectedDay ? `• ${selectedDay}` : ''}
+//             </Text>
+            
+//             {selectedDay !== null ? (
+//               getSelectedDayEvents().length > 0 ? (
+//                 getSelectedDayEvents().map(event => (
+//                   <TouchableOpacity
+//                     key={event.id}
+//                     style={styles.eventCard}
+//                     onPress={() => {
+//                       setSelectedEvent(event);
+//                       setFormTitle(event.title);
+//                       setFormDescription(event.description || "");
+//                       setFormStartTime(event.startTime || "");
+//                       setFormEndTime(event.endTime || "");
+//                       setFormOutfitId(event.outfitId || "");
+//                       setModalType('event');
+//                       setModalVisible(true);
+//                     }}
+//                   >
+//                     <View style={styles.eventTimeBadge}>
+//                       <Text style={styles.eventTimeText}>
+//                         {event.startTime || 'Todo el día'}
+//                       </Text>
+//                     </View>
+//                     <View style={styles.eventContent}>
+//                       <Text style={styles.eventTitle}>{event.title}</Text>
+//                       {event.description && (
+//                         <Text style={styles.eventDescription}>{event.description}</Text>
+//                       )}
+//                     </View>
+//                     <Ionicons name="chevron-forward" size={20} color={colors.gray} />
+//                   </TouchableOpacity>
+//                 ))
+//               ) : (
+//                 <View style={styles.emptyState}>
+//                   <Ionicons name="calendar-outline" size={40} color={colors.gray} />
+//                   <Text style={styles.emptyText}>No hay eventos para este día</Text>
+//                   <TouchableOpacity style={[styles.emptyButton, { backgroundColor: colors.primary }]} onPress={handleAddEvent}>
+//                     <Text style={styles.emptyButtonText}>Agregar Evento</Text>
+//                   </TouchableOpacity>
+//                 </View>
+//               )
+//             ) : (
+//               <View style={styles.emptyState}>
+//                 <Ionicons name="calendar-outline" size={40} color={colors.gray} />
+//                 <Text style={styles.emptyText}>Selecciona un día para ver sus eventos</Text>
+//               </View>
+//             )}
+//           </View>
+//         </ScrollView>
+//       ) : (
+//         /* ========== VISTA VIAJES ========== */
+//         <ScrollView showsVerticalScrollIndicator={false} style={styles.tripsContainer}>
+//           {trips.length === 0 ? (
+//             <View style={styles.emptyState}>
+//               <Ionicons name="airplane-outline" size={40} color={colors.gray} />
+//               <Text style={styles.emptyText}>No tienes viajes planificados</Text>
+//               <TouchableOpacity style={[styles.emptyButton, { backgroundColor: colors.secondary }]} onPress={handleAddTrip}>
+//                 <Text style={styles.emptyButtonText}>Planificar Viaje</Text>
+//               </TouchableOpacity>
+//             </View>
+//           ) : (
+//             trips.map(trip => (
+//               <TouchableOpacity
+//                 key={trip.id}
+//                 style={styles.tripCard}
+//                 onPress={() => {
+//                   setSelectedEvent(trip);
+//                   setFormTitle(trip.title);
+//                   setFormDescription(trip.description || "");
+//                   setFormDestination((trip as any).destination || "");
+//                   setFormStartDate((trip as any).startDate || "");
+//                   setFormEndDate((trip as any).endDate || "");
+//                   setFormOutfitId(trip.outfitId || "");
+//                   setModalType('trip');
+//                   setModalVisible(true);
+//                 }}
+//               >
+//                 <View style={styles.tripHeader}>
+//                   <View style={[styles.tripBadge, { backgroundColor: colors.secondary }]}>
+//                     <Text style={styles.tripBadgeText}>
+//                       {(trip as any).startDate && (trip as any).endDate ? 
+//                         `${(trip as any).startDate} - ${(trip as any).endDate}` : 
+//                         'Próximamente'}
+//                     </Text>
+//                   </View>
+//                 </View>
+//                 <Text style={styles.tripTitle}>{trip.title}</Text>
+//                 {(trip as any).destination && (
+//                   <View style={styles.tripDetailItem}>
+//                     <Ionicons name="location-outline" size={14} color={colors.secondary} />
+//                     <Text style={styles.tripDetailText}>{(trip as any).destination}</Text>
+//                   </View>
+//                 )}
+//                 {trip.description && (
+//                   <Text style={styles.tripDescription}>{trip.description}</Text>
+//                 )}
+//                 {trip.outfitId && (
+//                   <View style={styles.tripOutfit}>
+//                     <Ionicons name="shirt-outline" size={14} color={colors.primary} />
+//                     <Text style={styles.tripOutfitText}>Outfit asignado</Text>
+//                   </View>
+//                 )}
+//               </TouchableOpacity>
+//             ))
+//           )}
+//         </ScrollView>
+//       )}
+
+//       {/* Modal para crear/editar evento o viaje */}
+//       <Modal
+//         visible={modalVisible}
+//         animationType="slide"
+//         transparent
+//         onRequestClose={() => setModalVisible(false)}
+//       >
+//         <View style={styles.modalOverlay}>
+//           <View style={styles.modalContent}>
+//             <View style={styles.modalHeader}>
+//               <Text style={styles.modalTitle}>
+//                 {selectedEvent 
+//                   ? (modalType === 'event' ? 'Editar Evento' : 'Editar Viaje')
+//                   : (modalType === 'event' ? 'Nuevo Evento' : 'Nuevo Viaje')}
+//               </Text>
+//               <TouchableOpacity onPress={() => setModalVisible(false)}>
+//                 <Ionicons name="close" size={24} color={colors.text} />
+//               </TouchableOpacity>
+//             </View>
+
+//             {modalType === 'event' ? (
+//               /* Formulario para evento normal */
+//               <>
+//                 {/* Selector de fecha */}
+//                 <TouchableOpacity 
+//                   style={styles.dateSelector}
+//                   onPress={() => setShowEventDatePicker(true)}
+//                 >
+//                   <Ionicons name="calendar-outline" size={20} color={colors.primary} />
+//                   <Text style={styles.dateSelectorText}>
+//                     {selectedDate || 'Seleccionar fecha'}
+//                   </Text>
+//                 </TouchableOpacity>
+
+//                 <TextInput
+//                   style={styles.input}
+//                   placeholder="Título del evento"
+//                   placeholderTextColor="#999"
+//                   value={formTitle}
+//                   onChangeText={setFormTitle}
+//                 />
+
+//                 <TextInput
+//                   style={[styles.input, styles.textArea]}
+//                   placeholder="Descripción (opcional)"
+//                   placeholderTextColor="#999"
+//                   value={formDescription}
+//                   onChangeText={setFormDescription}
+//                   multiline
+//                   numberOfLines={3}
+//                 />
+
+//                 <View style={styles.timeRow}>
+//                   {/* Hora inicio */}
+//                   <TouchableOpacity 
+//                     style={[styles.input, styles.timeInput]}
+//                     onPress={() => setShowStartTimePicker(true)}
+//                   >
+//                     <Text style={formStartTime ? styles.timeText : styles.timePlaceholder}>
+//                       {formStartTime || 'HH:MM'}
+//                     </Text>
+//                   </TouchableOpacity>
+                  
+//                   <Text style={styles.timeSeparator}>-</Text>
+                  
+//                   {/* Hora fin */}
+//                   <TouchableOpacity 
+//                     style={[styles.input, styles.timeInput]}
+//                     onPress={() => setShowEndTimePicker(true)}
+//                   >
+//                     <Text style={formEndTime ? styles.timeText : styles.timePlaceholder}>
+//                       {formEndTime || 'HH:MM'}
+//                     </Text>
+//                   </TouchableOpacity>
+//                 </View>
+
+//                 <View style={styles.outfitSelector}>
+//                   <Text style={styles.label}>Outfit sugerido:</Text>
+//                   <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+//                     <TouchableOpacity
+//                       style={[
+//                         styles.outfitOption,
+//                         !formOutfitId && { backgroundColor: colors.primary, borderColor: colors.primary }
+//                       ]}
+//                       onPress={() => setFormOutfitId("")}
+//                     >
+//                       <Text style={!formOutfitId ? styles.outfitOptionTextSelected : styles.outfitOptionText}>
+//                         Sin outfit
+//                       </Text>
+//                     </TouchableOpacity>
+                    
+//                     {userOutfits.map(outfit => (
+//                       <TouchableOpacity
+//                         key={outfit.id}
+//                         style={[
+//                           styles.outfitOption,
+//                           formOutfitId === outfit.id && { backgroundColor: colors.primary, borderColor: colors.primary }
+//                         ]}
+//                         onPress={() => setFormOutfitId(outfit.id)}
+//                       >
+//                         <Text style={formOutfitId === outfit.id ? styles.outfitOptionTextSelected : styles.outfitOptionText}>
+//                           {outfit.name || 'Outfit'}
+//                         </Text>
+//                       </TouchableOpacity>
+//                     ))}
+//                   </ScrollView>
+//                 </View>
+//               </>
+//             ) : (
+//               /* Formulario para viaje */
+//               <>
+//                 <TextInput
+//                   style={styles.input}
+//                   placeholder="Nombre del viaje"
+//                   placeholderTextColor="#999"
+//                   value={formTitle}
+//                   onChangeText={setFormTitle}
+//                 />
+
+//                 <TextInput
+//                   style={styles.input}
+//                   placeholder="Destino"
+//                   placeholderTextColor="#999"
+//                   value={formDestination}
+//                   onChangeText={setFormDestination}
+//                 />
+
+//                 <View style={styles.dateRangeRow}>
+//                   {/* Fecha inicio */}
+//                   <TouchableOpacity 
+//                     style={[styles.input, styles.dateInput]}
+//                     onPress={() => setShowStartDatePicker(true)}
+//                   >
+//                     <Text style={formStartDate ? styles.timeText : styles.timePlaceholder}>
+//                       {formStartDate || 'Inicio'}
+//                     </Text>
+//                   </TouchableOpacity>
+                  
+//                   <Text style={styles.dateSeparator}>a</Text>
+                  
+//                   {/* Fecha fin */}
+//                   <TouchableOpacity 
+//                     style={[styles.input, styles.dateInput]}
+//                     onPress={() => setShowEndDatePicker(true)}
+//                   >
+//                     <Text style={formEndDate ? styles.timeText : styles.timePlaceholder}>
+//                       {formEndDate || 'Fin'}
+//                     </Text>
+//                   </TouchableOpacity>
+//                 </View>
+
+//                 <TextInput
+//                   style={[styles.input, styles.textArea]}
+//                   placeholder="Descripción del viaje (opcional)"
+//                   placeholderTextColor="#999"
+//                   value={formDescription}
+//                   onChangeText={setFormDescription}
+//                   multiline
+//                   numberOfLines={3}
+//                 />
+
+//                 <View style={styles.outfitSelector}>
+//                   <Text style={styles.label}>Outfit sugerido para el viaje:</Text>
+//                   <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+//                     <TouchableOpacity
+//                       style={[
+//                         styles.outfitOption,
+//                         !formOutfitId && { backgroundColor: colors.primary, borderColor: colors.primary }
+//                       ]}
+//                       onPress={() => setFormOutfitId("")}
+//                     >
+//                       <Text style={!formOutfitId ? styles.outfitOptionTextSelected : styles.outfitOptionText}>
+//                         Sin outfit
+//                       </Text>
+//                     </TouchableOpacity>
+                    
+//                     {userOutfits.map(outfit => (
+//                       <TouchableOpacity
+//                         key={outfit.id}
+//                         style={[
+//                           styles.outfitOption,
+//                           formOutfitId === outfit.id && { backgroundColor: colors.primary, borderColor: colors.primary }
+//                         ]}
+//                         onPress={() => setFormOutfitId(outfit.id)}
+//                       >
+//                         <Text style={formOutfitId === outfit.id ? styles.outfitOptionTextSelected : styles.outfitOptionText}>
+//                           {outfit.name || 'Outfit'}
+//                         </Text>
+//                       </TouchableOpacity>
+//                     ))}
+//                   </ScrollView>
+//                 </View>
+//               </>
+//             )}
+
+//             <View style={styles.modalButtons}>
+//               {selectedEvent && (
+//                 <TouchableOpacity
+//                   style={[styles.button, styles.deleteButton]}
+//                   onPress={handleDeleteEvent}
+//                 >
+//                   <Text style={styles.deleteButtonText}>Eliminar</Text>
+//                 </TouchableOpacity>
+//               )}
+              
+//               <TouchableOpacity
+//                 style={[styles.button, styles.saveButton, { backgroundColor: colors.primary }]}
+//                 onPress={handleSaveEvent}
+//               >
+//                 <Text style={styles.saveButtonText}>
+//                   {selectedEvent ? 'Actualizar' : 'Guardar'}
+//                 </Text>
+//               </TouchableOpacity>
+//             </View>
+//           </View>
+//         </View>
+//       </Modal>
+
+//       {/* Pickers */}
+//       <TimePickerModal
+//         visible={showStartTimePicker}
+//         onClose={() => setShowStartTimePicker(false)}
+//         onSelect={(time) => setFormStartTime(time)}
+//         currentTime={formStartTime}
+//       />
+
+//       <TimePickerModal
+//         visible={showEndTimePicker}
+//         onClose={() => setShowEndTimePicker(false)}
+//         onSelect={(time) => setFormEndTime(time)}
+//         currentTime={formEndTime}
+//       />
+
+//       <DatePickerModal
+//         visible={showStartDatePicker}
+//         onClose={() => setShowStartDatePicker(false)}
+//         onSelect={(date) => setFormStartDate(date)}
+//         currentDate={formStartDate}
+//       />
+
+//       <DatePickerModal
+//         visible={showEndDatePicker}
+//         onClose={() => setShowEndDatePicker(false)}
+//         onSelect={(date) => setFormEndDate(date)}
+//         currentDate={formEndDate}
+//       />
+
+//       <DatePickerModal
+//         visible={showEventDatePicker}
+//         onClose={() => setShowEventDatePicker(false)}
+//         onSelect={(date) => setSelectedDate(date)}
+//         currentDate={selectedDate || undefined}
+//       />
+//     </View>
+//   );
+// }
+
+// const styles = StyleSheet.create({
+//   container: {
+//     flex: 1,
+//   },
+//   header: {
+//     paddingHorizontal: 20,
+//     paddingTop: 60,
+//     paddingBottom: 10,
+//     backgroundColor: colors.surface,
+//   },
+//   headerTitle: {
+//     fontSize: 24,
+//     fontWeight: 'bold',
+//     color: colors.text,
+//   },
+//   tabContainer: {
+//     flexDirection: 'row',
+//     backgroundColor: colors.bg,
+//     padding: 6,
+//     marginHorizontal: 16,
+//     marginTop: 8,
+//     marginBottom: 16,
+//     borderRadius: 16,
+//     borderWidth: 1,
+//     borderColor: 'rgba(0,0,0,0.1)',
+//   },
+//   tab: {
+//     flex: 1,
+//     paddingVertical: 12,
+//     alignItems: 'center',
+//     borderRadius: 12,
+//   },
+//   tabActive: {
+//     backgroundColor: colors.surface,
+//     shadowColor: '#000',
+//     shadowOffset: { width: 0, height: 2 },
+//     shadowOpacity: 0.05,
+//     shadowRadius: 8,
+//     elevation: 2,
+//   },
+//   tabText: {
+//     fontSize: 14,
+//     fontWeight: '600',
+//     color: '#999',
+//   },
+//   tabTextActive: {
+//     color: colors.text,
+//   },
+//   fab: {
+//     position: 'absolute',
+//     bottom: 20,
+//     right: 20,
+//     flexDirection: 'row',
+//     alignItems: 'center',
+//     paddingVertical: 12,
+//     paddingHorizontal: 20,
+//     borderRadius: 30,
+//     zIndex: 10,
+//     elevation: 5,
+//     shadowColor: '#000',
+//     shadowOffset: { width: 0, height: 2 },
+//     shadowOpacity: 0.2,
+//     shadowRadius: 4,
+//   },
+//   fabText: {
+//     color: 'white',
+//     fontWeight: '600',
+//     marginLeft: 8,
+//     fontSize: 14,
+//   },
+//   monthSelector: {
+//     flexDirection: 'row',
+//     alignItems: 'center',
+//     justifyContent: 'space-between',
+//     backgroundColor: colors.surface,
+//     marginHorizontal: 16,
+//     marginTop: 8,
+//     marginBottom: 20,
+//     paddingVertical: 12,
+//     paddingHorizontal: 16,
+//     borderRadius: 20,
+//     borderWidth: 1,
+//     borderColor: colors.gray,
+//   },
+//   monthButton: {
+//     padding: 4,
+//   },
+//   monthText: {
+//     fontSize: 14,
+//     fontWeight: '600',
+//     color: colors.text,
+//     letterSpacing: 0.5,
+//   },
+//   weekDaysRow: {
+//     flexDirection: 'row',
+//     paddingHorizontal: 16,
+//     marginBottom: 8,
+//   },
+//   weekDayText: {
+//     flex: 1,
+//     textAlign: 'center',
+//     fontSize: 12,
+//     fontWeight: '600',
+//     color: '#999',
+//     textTransform: 'uppercase',
+//   },
+//   calendarGrid: {
+//     flexDirection: 'row',
+//     flexWrap: 'wrap',
+//     paddingHorizontal: 12,
+//     marginBottom: 24,
+//   },
+//   calendarDay: {
+//     width: '14.28%',
+//     aspectRatio: 1,
+//     justifyContent: 'center',
+//     alignItems: 'center',
+//   },
+//   calendarDayText: {
+//     fontSize: 16,
+//     color: colors.text,
+//   },
+//   todayDay: {
+//     backgroundColor: colors.lightGray,
+//     borderRadius: 25,
+//   },
+//   todayDayText: {
+//     fontWeight: 'bold',
+//     color: colors.primary,
+//   },
+//   selectedDay: {
+//     backgroundColor: colors.primary,
+//     borderRadius: 25,
+//   },
+//   selectedDayText: {
+//     color: 'white',
+//     fontWeight: 'bold',
+//   },
+//   eventsContainer: {
+//     flex: 1,
+//     paddingHorizontal: 16,
+//     paddingBottom: 100,
+//   },
+//   sectionTitle: {
+//     fontSize: 18,
+//     fontWeight: '700',
+//     color: colors.text,
+//     marginBottom: 16,
+//   },
+//   eventCard: {
+//     flexDirection: 'row',
+//     alignItems: 'center',
+//     backgroundColor: colors.surface,
+//     borderRadius: 16,
+//     padding: 16,
+//     marginBottom: 12,
+//     borderWidth: 1,
+//     borderColor: colors.gray,
+//   },
+//   eventTimeBadge: {
+//     backgroundColor: colors.lightGray,
+//     paddingHorizontal: 12,
+//     paddingVertical: 6,
+//     borderRadius: 12,
+//     marginRight: 12,
+//   },
+//   eventTimeText: {
+//     fontSize: 12,
+//     fontWeight: '600',
+//     color: colors.text,
+//   },
+//   eventContent: {
+//     flex: 1,
+//   },
+//   eventTitle: {
+//     fontSize: 16,
+//     fontWeight: '600',
+//     color: colors.text,
+//     marginBottom: 4,
+//   },
+//   eventDescription: {
+//     fontSize: 14,
+//     color: '#999',
+//   },
+//   emptyState: {
+//     alignItems: 'center',
+//     justifyContent: 'center',
+//     paddingVertical: 40,
+//   },
+//   emptyText: {
+//     fontSize: 16,
+//     color: '#999',
+//     marginTop: 16,
+//     marginBottom: 20,
+//     textAlign: 'center',
+//   },
+//   emptyButton: {
+//     paddingVertical: 12,
+//     paddingHorizontal: 24,
+//     borderRadius: 30,
+//   },
+//   emptyButtonText: {
+//     color: 'white',
+//     fontWeight: '600',
+//     fontSize: 14,
+//   },
+//   tripsContainer: {
+//     flex: 1,
+//     paddingHorizontal: 16,
+//     paddingBottom: 100,
+//   },
+//   tripCard: {
+//     backgroundColor: colors.surface,
+//     borderRadius: 24,
+//     padding: 20,
+//     marginBottom: 16,
+//     borderWidth: 1,
+//     borderColor: colors.gray,
+//   },
+//   tripHeader: {
+//     marginBottom: 12,
+//   },
+//   tripBadge: {
+//     paddingHorizontal: 12,
+//     paddingVertical: 4,
+//     borderRadius: 20,
+//     alignSelf: 'flex-start',
+//   },
+//   tripBadgeText: {
+//     color: colors.surface,
+//     fontSize: 10,
+//     fontWeight: '700',
+//     textTransform: 'uppercase',
+//     letterSpacing: 0.5,
+//   },
+//   tripTitle: {
+//     fontSize: 20,
+//     fontWeight: '700',
+//     color: colors.text,
+//     marginBottom: 8,
+//   },
+//   tripDetailItem: {
+//     flexDirection: 'row',
+//     alignItems: 'center',
+//     marginBottom: 8,
+//     gap: 6,
+//   },
+//   tripDetailText: {
+//     fontSize: 14,
+//     color: '#666',
+//   },
+//   tripDescription: {
+//     fontSize: 14,
+//     color: '#666',
+//     marginTop: 8,
+//     lineHeight: 20,
+//   },
+//   tripOutfit: {
+//     flexDirection: 'row',
+//     alignItems: 'center',
+//     marginTop: 12,
+//     paddingTop: 12,
+//     borderTopWidth: 1,
+//     borderTopColor: colors.gray,
+//     gap: 6,
+//   },
+//   tripOutfitText: {
+//     fontSize: 14,
+//     color: colors.primary,
+//     fontWeight: '600',
+//   },
+//   modalOverlay: {
+//     flex: 1,
+//     backgroundColor: 'rgba(0,0,0,0.5)',
+//     justifyContent: 'center',
+//     alignItems: 'center',
+//   },
+//   modalContent: {
+//     width: '90%',
+//     backgroundColor: colors.surface,
+//     borderRadius: 32,
+//     padding: 20,
+//     maxHeight: '80%',
+//   },
+//   modalHeader: {
+//     flexDirection: 'row',
+//     justifyContent: 'space-between',
+//     alignItems: 'center',
+//     marginBottom: 16,
+//   },
+//   modalTitle: {
+//     fontSize: 20,
+//     fontWeight: 'bold',
+//     color: colors.text,
+//   },
+//   dateSelector: {
+//     flexDirection: 'row',
+//     alignItems: 'center',
+//     borderWidth: 1,
+//     borderColor: colors.gray,
+//     borderRadius: 16,
+//     padding: 14,
+//     marginBottom: 16,
+//     gap: 10,
+//   },
+//   dateSelectorText: {
+//     fontSize: 14,
+//     color: colors.text,
+//     flex: 1,
+//   },
+//   input: {
+//     borderWidth: 1,
+//     borderColor: colors.gray,
+//     borderRadius: 16,
+//     padding: 14,
+//     fontSize: 14,
+//     marginBottom: 16,
+//     color: colors.text,
+//   },
+//   textArea: {
+//     minHeight: 80,
+//     textAlignVertical: 'top',
+//   },
+//   timeRow: {
+//     flexDirection: 'row',
+//     alignItems: 'center',
+//     marginBottom: 16,
+//   },
+//   timeInput: {
+//     flex: 1,
+//     marginBottom: 0,
+//     justifyContent: 'center',
+//   },
+//   timeText: {
+//     fontSize: 14,
+//     color: colors.text,
+//   },
+//   timePlaceholder: {
+//     fontSize: 14,
+//     color: '#999',
+//   },
+//   timeSeparator: {
+//     marginHorizontal: 12,
+//     fontSize: 16,
+//     color: colors.gray,
+//   },
+//   dateRangeRow: {
+//     flexDirection: 'row',
+//     alignItems: 'center',
+//     marginBottom: 16,
+//   },
+//   dateInput: {
+//     flex: 1,
+//     marginBottom: 0,
+//     justifyContent: 'center',
+//   },
+//   dateSeparator: {
+//     marginHorizontal: 12,
+//     fontSize: 14,
+//     color: colors.gray,
+//   },
+//   outfitSelector: {
+//     marginBottom: 20,
+//   },
+//   label: {
+//     fontSize: 14,
+//     color: colors.text,
+//     marginBottom: 12,
+//     fontWeight: '500',
+//   },
+//   outfitOption: {
+//     paddingHorizontal: 16,
+//     paddingVertical: 10,
+//     borderRadius: 20,
+//     borderWidth: 1,
+//     borderColor: colors.gray,
+//     marginRight: 10,
+//   },
+//   outfitOptionText: {
+//     color: colors.text,
+//     fontSize: 13,
+//     fontWeight: '500',
+//   },
+//   outfitOptionTextSelected: {
+//     color: colors.surface,
+//     fontSize: 13,
+//     fontWeight: '500',
+//   },
+//   modalButtons: {
+//     flexDirection: 'row',
+//     justifyContent: 'flex-end',
+//     gap: 12,
+//     marginTop: 8,
+//   },
+//   button: {
+//     paddingVertical: 12,
+//     paddingHorizontal: 24,
+//     borderRadius: 16,
+//     minWidth: 100,
+//     alignItems: 'center',
+//   },
+//   saveButton: {
+//     backgroundColor: colors.primary,
+//   },
+//   saveButtonText: {
+//     color: colors.surface,
+//     fontWeight: '600',
+//   },
+//   deleteButton: {
+//     backgroundColor: colors.surface,
+//     borderWidth: 1,
+//     borderColor: colors.cta,
+//   },
+//   deleteButtonText: {
+//     color: colors.cta,
+//     fontWeight: '600',
+//   },
+//   // Estilos para los pickers
+//   pickerModal: {
+//     width: '80%',
+//     backgroundColor: colors.surface,
+//     borderRadius: 24,
+//     padding: 20,
+//     maxHeight: '70%',
+//   },
+//   pickerTitle: {
+//     fontSize: 18,
+//     fontWeight: 'bold',
+//     color: colors.text,
+//     textAlign: 'center',
+//     marginBottom: 20,
+//   },
+//   timePickerContainer: {
+//     flexDirection: 'row',
+//     justifyContent: 'space-between',
+//     marginBottom: 20,
+//   },
+//   pickerColumn: {
+//     flex: 1,
+//     alignItems: 'center',
+//   },
+//   pickerLabel: {
+//     fontSize: 14,
+//     fontWeight: '600',
+//     color: colors.text,
+//     marginBottom: 10,
+//   },
+//   pickerScroll: {
+//     maxHeight: 150,
+//     width: '100%',
+//   },
+//   pickerItem: {
+//     paddingVertical: 8,
+//     alignItems: 'center',
+//   },
+//   pickerItemSelected: {
+//     backgroundColor: colors.primary,
+//     borderRadius: 8,
+//   },
+//   pickerItemText: {
+//     fontSize: 16,
+//     color: colors.text,
+//   },
+//   pickerItemTextSelected: {
+//     color: 'white',
+//     fontWeight: '600',
+//   },
+//   periodButton: {
+//     paddingVertical: 10,
+//     paddingHorizontal: 20,
+//     borderWidth: 1,
+//     borderColor: colors.gray,
+//     borderRadius: 8,
+//     marginVertical: 4,
+//     width: '80%',
+//     alignItems: 'center',
+//   },
+//   periodButtonSelected: {
+//     backgroundColor: colors.primary,
+//     borderColor: colors.primary,
+//   },
+//   periodButtonText: {
+//     fontSize: 16,
+//     color: colors.text,
+//   },
+//   periodButtonTextSelected: {
+//     color: 'white',
+//     fontWeight: '600',
+//   },
+//   pickerButtons: {
+//     flexDirection: 'row',
+//     justifyContent: 'space-around',
+//     marginTop: 20,
+//   },
+//   pickerButton: {
+//     paddingVertical: 12,
+//     paddingHorizontal: 24,
+//     borderRadius: 20,
+//     minWidth: 120,
+//     alignItems: 'center',
+//   },
+//   pickerButtonCancel: {
+//     backgroundColor: colors.surface,
+//     borderWidth: 1,
+//     borderColor: colors.gray,
+//   },
+//   pickerButtonConfirm: {
+//     backgroundColor: colors.primary,
+//   },
+//   pickerButtonTextCancel: {
+//     color: colors.text,
+//     fontWeight: '600',
+//   },
+//   pickerButtonTextConfirm: {
+//     color: 'white',
+//     fontWeight: '600',
+//   },
+//   datePickerHeader: {
+//     flexDirection: 'row',
+//     justifyContent: 'space-between',
+//     alignItems: 'center',
+//     marginBottom: 20,
+//   },
+//   datePickerMonth: {
+//     fontSize: 16,
+//     fontWeight: '600',
+//     color: colors.text,
+//   },
+//   daysGrid: {
+//     flexDirection: 'row',
+//     flexWrap: 'wrap',
+//     marginBottom: 20,
+//   },
+//   datePickerDay: {
+//     width: '14.28%',
+//     aspectRatio: 1,
+//     justifyContent: 'center',
+//     alignItems: 'center',
+//   },
+//   datePickerDaySelected: {
+//     backgroundColor: colors.primary,
+//     borderRadius: 20,
+//   },
+//   datePickerDayText: {
+//     fontSize: 14,
+//     color: colors.text,
+//   },
+//   datePickerDayTextSelected: {
+//     color: 'white',
+//     fontWeight: '600',
+//   },
+// });
+
+// app/(tabs)/calendario.tsx
 import React, { useState, useEffect } from "react";
 import {
   View,
@@ -10,86 +1629,91 @@ import {
   TextInput,
   Alert,
   ActivityIndicator,
-  Image,
   Platform,
-  FlatList
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import { useAuth } from "../../src/contexts/auth";
-import { 
-  getUserEvents, 
-  createEvent, 
-  updateEvent, 
+import {
+  getUserEvents,
+  createEvent,
+  updateEvent,
   deleteEvent,
-  CalendarEvent 
+  CalendarEvent,
 } from "../../src/services/calendar.service";
 import { getUserOutfits } from "../../src/services/outfits.service";
 
-// --- PALETA DE COLORES (consistente con el proyecto) ---
-const colors = {
-  bg: '#FFFFFF',
-  text: '#1E232A',
-  primary: '#667eea', // Azul del proyecto
-  secondary: '#40a585ff', // Verde del proyecto
-  cta: '#E07A5F',
-  surface: '#FFFFFF',
-  gray: '#D5D1C9',
-  lightGray: '#f5f5f5',
-  border: '#ddd',
+const palette = {
+  bg: "#EEF3F7",
+  card: "#FFFFFF",
+  text: "#1F2A44",
+  muted: "#6B7280",
+  lightMuted: "#9CA3AF",
+  border: "#E5E7EB",
+  primary: "#4A6FA5",
+  secondary: "#8FB8A8",
+  accent: "#A78BFA",
+  danger: "#EF4444",
+  dangerSoft: "#FEF2F2",
 };
 
-// Tipo para diferenciar entre evento normal y viaje
-type CalendarItemType = 'event' | 'trip';
+type CalendarItemType = "event" | "trip";
 
-// Generar días del mes
 const getDaysInMonth = (date: Date) => {
   const year = date.getFullYear();
   const month = date.getMonth();
   const firstDay = new Date(year, month, 1);
   const lastDay = new Date(year, month + 1, 0);
-  
+
   const days = [];
-  const startDay = firstDay.getDay(); // 0 = domingo
-  
-  // Ajustar para que la semana empiece en lunes (1 = lunes)
+  const startDay = firstDay.getDay();
   const adjustedStartDay = startDay === 0 ? 6 : startDay - 1;
-  
-  // Añadir días vacíos al inicio
+
   for (let i = 0; i < adjustedStartDay; i++) {
     days.push(null);
   }
-  
-  // Añadir días del mes
+
   for (let i = 1; i <= lastDay.getDate(); i++) {
     const currentDate = new Date(year, month, i);
     days.push({
       date: currentDate,
       dayNumber: i,
-      isToday: currentDate.toDateString() === new Date().toDateString()
+      isToday: currentDate.toDateString() === new Date().toDateString(),
     });
   }
-  
+
   return days;
 };
 
-// Selector de hora
-const TimePickerModal = ({ visible, onClose, onSelect, currentTime = '' }) => {
-  const [selectedHour, setSelectedHour] = useState('12');
-  const [selectedMinute, setSelectedMinute] = useState('00');
-  const [selectedPeriod, setSelectedPeriod] = useState('AM');
+const TimePickerModal = ({
+  visible,
+  onClose,
+  onSelect,
+  currentTime = "",
+}: {
+  visible: boolean;
+  onClose: () => void;
+  onSelect: (time: string) => void;
+  currentTime?: string;
+}) => {
+  const [selectedHour, setSelectedHour] = useState("12");
+  const [selectedMinute, setSelectedMinute] = useState("00");
+  const [selectedPeriod, setSelectedPeriod] = useState("AM");
 
   useEffect(() => {
     if (currentTime) {
-      const [time, period] = currentTime.split(' ');
-      const [hour, minute] = time.split(':');
+      const [time, period] = currentTime.split(" ");
+      const [hour, minute] = time.split(":");
       setSelectedHour(hour);
       setSelectedMinute(minute);
-      setSelectedPeriod(period || 'AM');
+      setSelectedPeriod(period || "AM");
     }
   }, [currentTime]);
 
-  const hours = Array.from({ length: 12 }, (_, i) => (i + 1).toString().padStart(2, '0'));
-  const minutes = ['00', '15', '30', '45'];
+  const hours = Array.from({ length: 12 }, (_, i) =>
+    (i + 1).toString().padStart(2, "0")
+  );
+  const minutes = ["00", "15", "30", "45"];
 
   const handleConfirm = () => {
     onSelect(`${selectedHour}:${selectedMinute} ${selectedPeriod}`);
@@ -101,78 +1725,101 @@ const TimePickerModal = ({ visible, onClose, onSelect, currentTime = '' }) => {
       <View style={styles.modalOverlay}>
         <View style={styles.pickerModal}>
           <Text style={styles.pickerTitle}>Seleccionar Hora</Text>
-          
+
           <View style={styles.timePickerContainer}>
-            {/* Horas */}
             <View style={styles.pickerColumn}>
               <Text style={styles.pickerLabel}>Hora</Text>
-              <ScrollView style={styles.pickerScroll} showsVerticalScrollIndicator={false}>
-                {hours.map(hour => (
+              <ScrollView
+                style={styles.pickerScroll}
+                showsVerticalScrollIndicator={false}
+              >
+                {hours.map((hour) => (
                   <TouchableOpacity
                     key={hour}
                     style={[
                       styles.pickerItem,
-                      selectedHour === hour && styles.pickerItemSelected
+                      selectedHour === hour && styles.pickerItemSelected,
                     ]}
                     onPress={() => setSelectedHour(hour)}
                   >
-                    <Text style={[
-                      styles.pickerItemText,
-                      selectedHour === hour && styles.pickerItemTextSelected
-                    ]}>{hour}</Text>
+                    <Text
+                      style={[
+                        styles.pickerItemText,
+                        selectedHour === hour && styles.pickerItemTextSelected,
+                      ]}
+                    >
+                      {hour}
+                    </Text>
                   </TouchableOpacity>
                 ))}
               </ScrollView>
             </View>
 
-            {/* Minutos */}
             <View style={styles.pickerColumn}>
               <Text style={styles.pickerLabel}>Minuto</Text>
-              <ScrollView style={styles.pickerScroll} showsVerticalScrollIndicator={false}>
-                {minutes.map(minute => (
+              <ScrollView
+                style={styles.pickerScroll}
+                showsVerticalScrollIndicator={false}
+              >
+                {minutes.map((minute) => (
                   <TouchableOpacity
                     key={minute}
                     style={[
                       styles.pickerItem,
-                      selectedMinute === minute && styles.pickerItemSelected
+                      selectedMinute === minute && styles.pickerItemSelected,
                     ]}
                     onPress={() => setSelectedMinute(minute)}
                   >
-                    <Text style={[
-                      styles.pickerItemText,
-                      selectedMinute === minute && styles.pickerItemTextSelected
-                    ]}>{minute}</Text>
+                    <Text
+                      style={[
+                        styles.pickerItemText,
+                        selectedMinute === minute &&
+                          styles.pickerItemTextSelected,
+                      ]}
+                    >
+                      {minute}
+                    </Text>
                   </TouchableOpacity>
                 ))}
               </ScrollView>
             </View>
 
-            {/* AM/PM */}
             <View style={styles.pickerColumn}>
               <Text style={styles.pickerLabel}>Periodo</Text>
-              {['AM', 'PM'].map(period => (
+              {["AM", "PM"].map((period) => (
                 <TouchableOpacity
                   key={period}
                   style={[
                     styles.periodButton,
-                    selectedPeriod === period && styles.periodButtonSelected
+                    selectedPeriod === period && styles.periodButtonSelected,
                   ]}
                   onPress={() => setSelectedPeriod(period)}
                 >
-                  <Text style={[
-                    styles.periodButtonText,
-                    selectedPeriod === period && styles.periodButtonTextSelected
-                  ]}>{period}</Text>
+                  <Text
+                    style={[
+                      styles.periodButtonText,
+                      selectedPeriod === period &&
+                        styles.periodButtonTextSelected,
+                    ]}
+                  >
+                    {period}
+                  </Text>
                 </TouchableOpacity>
               ))}
             </View>
           </View>
 
           <View style={styles.pickerButtons}>
-            <TouchableOpacity style={[styles.pickerButton, styles.pickerButtonCancel]} onPress={onClose}>
+            <TouchableOpacity
+              style={[styles.pickerButton, styles.pickerButtonCancel]}
+              onPress={onClose}
+            >
               <Text style={styles.pickerButtonTextCancel}>Cancelar</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.pickerButton, styles.pickerButtonConfirm]} onPress={handleConfirm}>
+            <TouchableOpacity
+              style={[styles.pickerButton, styles.pickerButtonConfirm]}
+              onPress={handleConfirm}
+            >
               <Text style={styles.pickerButtonTextConfirm}>Confirmar</Text>
             </TouchableOpacity>
           </View>
@@ -182,8 +1829,17 @@ const TimePickerModal = ({ visible, onClose, onSelect, currentTime = '' }) => {
   );
 };
 
-// Selector de fecha (mini calendario)
-const DatePickerModal = ({ visible, onClose, onSelect, currentDate = '' }) => {
+const DatePickerModal = ({
+  visible,
+  onClose,
+  onSelect,
+  currentDate = "",
+}: {
+  visible: boolean;
+  onClose: () => void;
+  onSelect: (date: string) => void;
+  currentDate?: string;
+}) => {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [currentMonth, setCurrentMonth] = useState(new Date());
 
@@ -194,52 +1850,64 @@ const DatePickerModal = ({ visible, onClose, onSelect, currentDate = '' }) => {
     }
   }, [currentDate]);
 
-  const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-    'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-  
-  const weekDays = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
+  const monthNames = [
+    "Enero",
+    "Febrero",
+    "Marzo",
+    "Abril",
+    "Mayo",
+    "Junio",
+    "Julio",
+    "Agosto",
+    "Septiembre",
+    "Octubre",
+    "Noviembre",
+    "Diciembre",
+  ];
 
-  const getDaysInMonth = (date: Date) => {
+  const weekDays = ["L", "M", "M", "J", "V", "S", "D"];
+
+  const getMonthDays = (date: Date) => {
     const year = date.getFullYear();
     const month = date.getMonth();
     const firstDay = new Date(year, month, 1);
     const lastDay = new Date(year, month + 1, 0);
-    
+
     const days = [];
     const startDay = firstDay.getDay();
     const adjustedStartDay = startDay === 0 ? 6 : startDay - 1;
-    
+
     for (let i = 0; i < adjustedStartDay; i++) {
       days.push(null);
     }
-    
+
     for (let i = 1; i <= lastDay.getDate(); i++) {
       days.push(new Date(year, month, i));
     }
-    
+
     return days;
   };
 
-  const days = getDaysInMonth(currentMonth);
+  const days = getMonthDays(currentMonth);
 
   const handlePrevMonth = () => {
-    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1));
+    setCurrentMonth(
+      new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1)
+    );
   };
 
   const handleNextMonth = () => {
-    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1));
+    setCurrentMonth(
+      new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1)
+    );
   };
 
   const isSelectedDate = (date: Date) => {
     return date.toDateString() === selectedDate.toDateString();
   };
 
-  const handleSelectDate = (date: Date) => {
-    setSelectedDate(date);
-  };
-
   const handleConfirm = () => {
-    onSelect(selectedDate.toISOString().split('T')[0]);
+    onSelect(selectedDate.toISOString().split("T")[0]);
     onClose();
   };
 
@@ -248,44 +1916,53 @@ const DatePickerModal = ({ visible, onClose, onSelect, currentDate = '' }) => {
       <View style={styles.modalOverlay}>
         <View style={styles.pickerModal}>
           <Text style={styles.pickerTitle}>Seleccionar Fecha</Text>
-          
-          {/* Selector de mes */}
+
           <View style={styles.datePickerHeader}>
             <TouchableOpacity onPress={handlePrevMonth}>
-              <Ionicons name="chevron-back" size={24} color={colors.primary} />
+              <Ionicons
+                name="chevron-back"
+                size={24}
+                color={palette.primary}
+              />
             </TouchableOpacity>
             <Text style={styles.datePickerMonth}>
               {monthNames[currentMonth.getMonth()]} {currentMonth.getFullYear()}
             </Text>
             <TouchableOpacity onPress={handleNextMonth}>
-              <Ionicons name="chevron-forward" size={24} color={colors.primary} />
+              <Ionicons
+                name="chevron-forward"
+                size={24}
+                color={palette.primary}
+              />
             </TouchableOpacity>
           </View>
 
-          {/* Días de la semana */}
-          <View style={styles.weekDaysRow}>
+          <View style={styles.weekDaysRowMini}>
             {weekDays.map((day, index) => (
-              <Text key={index} style={styles.weekDayText}>{day}</Text>
+              <Text key={index} style={styles.weekDayTextMini}>
+                {day}
+              </Text>
             ))}
           </View>
 
-          {/* Días del mes */}
-          <View style={styles.daysGrid}>
+          <View style={styles.daysGridMini}>
             {days.map((date, index) => (
               <TouchableOpacity
                 key={index}
                 style={[
                   styles.datePickerDay,
-                  date && isSelectedDate(date) && styles.datePickerDaySelected
+                  date && isSelectedDate(date) && styles.datePickerDaySelected,
                 ]}
-                onPress={() => date && handleSelectDate(date)}
+                onPress={() => date && setSelectedDate(date)}
                 disabled={!date}
               >
                 {date && (
-                  <Text style={[
-                    styles.datePickerDayText,
-                    isSelectedDate(date) && styles.datePickerDayTextSelected
-                  ]}>
+                  <Text
+                    style={[
+                      styles.datePickerDayText,
+                      isSelectedDate(date) && styles.datePickerDayTextSelected,
+                    ]}
+                  >
                     {date.getDate()}
                   </Text>
                 )}
@@ -294,10 +1971,16 @@ const DatePickerModal = ({ visible, onClose, onSelect, currentDate = '' }) => {
           </View>
 
           <View style={styles.pickerButtons}>
-            <TouchableOpacity style={[styles.pickerButton, styles.pickerButtonCancel]} onPress={onClose}>
+            <TouchableOpacity
+              style={[styles.pickerButton, styles.pickerButtonCancel]}
+              onPress={onClose}
+            >
               <Text style={styles.pickerButtonTextCancel}>Cancelar</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.pickerButton, styles.pickerButtonConfirm]} onPress={handleConfirm}>
+            <TouchableOpacity
+              style={[styles.pickerButton, styles.pickerButtonConfirm]}
+              onPress={handleConfirm}
+            >
               <Text style={styles.pickerButtonTextConfirm}>Confirmar</Text>
             </TouchableOpacity>
           </View>
@@ -309,7 +1992,8 @@ const DatePickerModal = ({ visible, onClose, onSelect, currentDate = '' }) => {
 
 export default function CalendarioScreen() {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState('calendar');
+
+  const [activeTab, setActiveTab] = useState("calendar");
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [calendarDays, setCalendarDays] = useState<any[]>([]);
@@ -317,19 +2001,17 @@ export default function CalendarioScreen() {
   const [trips, setTrips] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
-  const [modalType, setModalType] = useState<CalendarItemType>('event');
+  const [modalType, setModalType] = useState<CalendarItemType>("event");
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [userOutfits, setUserOutfits] = useState<any[]>([]);
-  
-  // Pickers
+
   const [showStartTimePicker, setShowStartTimePicker] = useState(false);
   const [showEndTimePicker, setShowEndTimePicker] = useState(false);
   const [showStartDatePicker, setShowStartDatePicker] = useState(false);
   const [showEndDatePicker, setShowEndDatePicker] = useState(false);
   const [showEventDatePicker, setShowEventDatePicker] = useState(false);
 
-  // Form state
   const [formTitle, setFormTitle] = useState("");
   const [formDescription, setFormDescription] = useState("");
   const [formStartTime, setFormStartTime] = useState("");
@@ -339,16 +2021,25 @@ export default function CalendarioScreen() {
   const [formStartDate, setFormStartDate] = useState("");
   const [formEndDate, setFormEndDate] = useState("");
 
-  // Meses en español
-  const monthNames = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO',
-    'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];
+  const monthNames = [
+    "ENERO",
+    "FEBRERO",
+    "MARZO",
+    "ABRIL",
+    "MAYO",
+    "JUNIO",
+    "JULIO",
+    "AGOSTO",
+    "SEPTIEMBRE",
+    "OCTUBRE",
+    "NOVIEMBRE",
+    "DICIEMBRE",
+  ];
 
-  // Actualizar días del calendario cuando cambia el mes
   useEffect(() => {
     setCalendarDays(getDaysInMonth(currentMonth));
   }, [currentMonth]);
 
-  // Cargar datos
   useEffect(() => {
     if (user?.id) {
       loadEvents();
@@ -364,7 +2055,7 @@ export default function CalendarioScreen() {
       const month = currentMonth.getMonth() + 1;
       const year = currentMonth.getFullYear();
       const data = await getUserEvents(user.id, month, year);
-      const normalEvents = data.filter(e => !(e as any).isTrip);
+      const normalEvents = data.filter((e) => !(e as any).isTrip);
       setEvents(normalEvents);
     } catch (error) {
       console.error("Error cargando eventos:", error);
@@ -377,7 +2068,7 @@ export default function CalendarioScreen() {
     if (!user?.id) return;
     try {
       const data = await getUserEvents(user.id);
-      const tripsData = data.filter(e => (e as any).isTrip);
+      const tripsData = data.filter((e) => (e as any).isTrip);
       setTrips(tripsData);
     } catch (error) {
       console.error("Error cargando viajes:", error);
@@ -395,16 +2086,21 @@ export default function CalendarioScreen() {
   };
 
   const handlePrevMonth = () => {
-    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1));
+    setCurrentMonth(
+      new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1)
+    );
   };
 
   const handleNextMonth = () => {
-    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1));
+    setCurrentMonth(
+      new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1)
+    );
   };
 
   const handleAddEvent = () => {
-    setModalType('event');
+    setModalType("event");
     setSelectedEvent(null);
+    setSelectedDate(null);
     setFormTitle("");
     setFormDescription("");
     setFormStartTime("");
@@ -414,7 +2110,7 @@ export default function CalendarioScreen() {
   };
 
   const handleAddTrip = () => {
-    setModalType('trip');
+    setModalType("trip");
     setSelectedEvent(null);
     setFormTitle("");
     setFormDescription("");
@@ -427,19 +2123,22 @@ export default function CalendarioScreen() {
 
   const handleDayPress = (dayData: any) => {
     if (!dayData) return;
-    
+
     setSelectedDay(dayData.dayNumber);
-    const dateStr = dayData.date.toISOString().split('T')[0];
+    const dateStr = dayData.date.toISOString().split("T")[0];
     setSelectedDate(dateStr);
-    
-    // Buscar evento para ese día
-    const dayEvent = events.find(e => {
+
+    const dayEvent = events.find((e) => {
+      if (!e.date) return false;
+
       const eventDate = new Date(e.date);
-      return eventDate.getDate() === dayData.dayNumber &&
-             eventDate.getMonth() === currentMonth.getMonth() &&
-             eventDate.getFullYear() === currentMonth.getFullYear();
+      return (
+        eventDate.getDate() === dayData.dayNumber &&
+        eventDate.getMonth() === currentMonth.getMonth() &&
+        eventDate.getFullYear() === currentMonth.getFullYear()
+      );
     });
-    
+
     if (dayEvent) {
       setSelectedEvent(dayEvent);
       setFormTitle(dayEvent.title);
@@ -447,7 +2146,7 @@ export default function CalendarioScreen() {
       setFormStartTime(dayEvent.startTime || "");
       setFormEndTime(dayEvent.endTime || "");
       setFormOutfitId(dayEvent.outfitId || "");
-      setModalType('event');
+      setModalType("event");
     } else {
       setSelectedEvent(null);
       setFormTitle("");
@@ -455,16 +2154,16 @@ export default function CalendarioScreen() {
       setFormStartTime("");
       setFormEndTime("");
       setFormOutfitId("");
-      setModalType('event');
+      setModalType("event");
     }
-    
+
     setModalVisible(true);
   };
 
   const handleSaveEvent = async () => {
     if (!user?.id) return;
-    
-    if (modalType === 'event') {
+
+    if (modalType === "event") {
       if (!formTitle.trim() || !selectedDate) {
         Alert.alert("Error", "El título y la fecha son requeridos");
         return;
@@ -477,7 +2176,7 @@ export default function CalendarioScreen() {
             description: formDescription || undefined,
             startTime: formStartTime || undefined,
             endTime: formEndTime || undefined,
-            outfitId: formOutfitId || undefined
+            outfitId: formOutfitId || undefined,
           });
           Alert.alert("Éxito", "Evento actualizado");
         } else {
@@ -489,11 +2188,11 @@ export default function CalendarioScreen() {
             startTime: formStartTime || undefined,
             endTime: formEndTime || undefined,
             outfitId: formOutfitId || undefined,
-            isTrip: false
+            isTrip: false,
           });
           Alert.alert("Éxito", "Evento creado");
         }
-        
+
         setModalVisible(false);
         loadEvents();
       } catch (error) {
@@ -501,7 +2200,12 @@ export default function CalendarioScreen() {
         Alert.alert("Error", "No se pudo guardar el evento");
       }
     } else {
-      if (!formTitle.trim() || !formDestination.trim() || !formStartDate || !formEndDate) {
+      if (
+        !formTitle.trim() ||
+        !formDestination.trim() ||
+        !formStartDate ||
+        !formEndDate
+      ) {
         Alert.alert("Error", "Todos los campos son requeridos para el viaje");
         return;
       }
@@ -515,7 +2219,7 @@ export default function CalendarioScreen() {
             startDate: formStartDate,
             endDate: formEndDate,
             outfitId: formOutfitId || undefined,
-            isTrip: true
+            isTrip: true,
           });
           Alert.alert("Éxito", "Viaje actualizado");
         } else {
@@ -527,11 +2231,11 @@ export default function CalendarioScreen() {
             startDate: formStartDate,
             endDate: formEndDate,
             outfitId: formOutfitId || undefined,
-            isTrip: true
+            isTrip: true,
           });
           Alert.alert("Éxito", "Viaje creado");
         }
-        
+
         setModalVisible(false);
         loadTrips();
       } catch (error) {
@@ -543,274 +2247,388 @@ export default function CalendarioScreen() {
 
   const handleDeleteEvent = async () => {
     if (!selectedEvent) return;
-    
-    if (Platform.OS === 'web') {
+
+    if (Platform.OS === "web") {
       const confirm = window.confirm("¿Eliminar este elemento?");
       if (confirm) {
         try {
           await deleteEvent(selectedEvent.id);
           Alert.alert("Éxito", "Elemento eliminado");
           setModalVisible(false);
-          if (modalType === 'event') {
-            loadEvents();
-          } else {
-            loadTrips();
-          }
+          if (modalType === "event") loadEvents();
+          else loadTrips();
         } catch (error) {
           console.error("Error eliminando:", error);
           Alert.alert("Error", "No se pudo eliminar");
         }
       }
     } else {
-      Alert.alert(
-        "Eliminar",
-        "¿Estás seguro?",
-        [
-          { text: "Cancelar", style: "cancel" },
-          {
-            text: "Eliminar",
-            style: "destructive",
-            onPress: async () => {
-              try {
-                await deleteEvent(selectedEvent.id);
-                Alert.alert("Éxito", "Elemento eliminado");
-                setModalVisible(false);
-                if (modalType === 'event') {
-                  loadEvents();
-                } else {
-                  loadTrips();
-                }
-              } catch (error) {
-                console.error("Error eliminando:", error);
-                Alert.alert("Error", "No se pudo eliminar");
-              }
+      Alert.alert("Eliminar", "¿Estás seguro?", [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Eliminar",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await deleteEvent(selectedEvent.id);
+              Alert.alert("Éxito", "Elemento eliminado");
+              setModalVisible(false);
+              if (modalType === "event") loadEvents();
+              else loadTrips();
+            } catch (error) {
+              console.error("Error eliminando:", error);
+              Alert.alert("Error", "No se pudo eliminar");
             }
-          }
-        ]
-      );
+          },
+        },
+      ]);
     }
   };
 
-  // Obtener eventos del día seleccionado
   const getSelectedDayEvents = () => {
     if (selectedDay === null) return [];
-    
-    return events.filter(e => {
+
+    return events.filter((e) => {
+      if (!e.date) return false;
+
       const eventDate = new Date(e.date);
-      return eventDate.getDate() === selectedDay &&
-             eventDate.getMonth() === currentMonth.getMonth() &&
-             eventDate.getFullYear() === currentMonth.getFullYear();
+      return (
+        eventDate.getDate() === selectedDay &&
+        eventDate.getMonth() === currentMonth.getMonth() &&
+        eventDate.getFullYear() === currentMonth.getFullYear()
+      );
     });
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.bg }]}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Planificador</Text>
-      </View>
-
-      {/* Tabs */}
-      <View style={styles.tabContainer}>
-        <TouchableOpacity 
-          style={[styles.tab, activeTab === 'calendar' && styles.tabActive]}
-          onPress={() => setActiveTab('calendar')}
+    <View style={styles.container}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+        <LinearGradient
+          colors={["#4A6FA5", "#8FB8A8", "#A78BFA"]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.hero}
         >
-          <Text style={[styles.tabText, activeTab === 'calendar' && styles.tabTextActive]}>
-            Calendario
+          <Text style={styles.heroTitle}>Calendario</Text>
+          <Text style={styles.heroSubtitle}>
+            Organiza eventos y viajes con el mismo estilo de OutfitLab.
           </Text>
-        </TouchableOpacity>
-        <TouchableOpacity 
-          style={[styles.tab, activeTab === 'trips' && styles.tabActive]}
-          onPress={() => setActiveTab('trips')}
-        >
-          <Text style={[styles.tabText, activeTab === 'trips' && styles.tabTextActive]}>
-            Mis Viajes
-          </Text>
-        </TouchableOpacity>
-      </View>
+        </LinearGradient>
 
-      {/* Botones flotantes */}
-      {activeTab === 'calendar' && (
-        <TouchableOpacity style={[styles.fab, { backgroundColor: colors.primary }]} onPress={handleAddEvent}>
-          <Ionicons name="calendar-outline" size={20} color="white" />
-          <Text style={styles.fabText}>Nuevo Evento</Text>
-        </TouchableOpacity>
-      )}
-      
-      {activeTab === 'trips' && (
-        <TouchableOpacity style={[styles.fab, { backgroundColor: colors.secondary }]} onPress={handleAddTrip}>
-          <Ionicons name="airplane-outline" size={20} color="white" />
-          <Text style={styles.fabText}>Nuevo Viaje</Text>
-        </TouchableOpacity>
-      )}
+        <View style={styles.content}>
+          <Text style={styles.pageTitle}>Planificador</Text>
 
-      {activeTab === 'calendar' ? (
-        /* ========== VISTA CALENDARIO ========== */
-        <ScrollView showsVerticalScrollIndicator={false}>
-          {/* Selector de mes */}
-          <View style={styles.monthSelector}>
-            <TouchableOpacity onPress={handlePrevMonth} style={styles.monthButton}>
-              <Ionicons name="chevron-back" size={20} color={colors.primary} />
+          <View style={styles.tabContainer}>
+            <TouchableOpacity
+              style={styles.tabPressable}
+              onPress={() => setActiveTab("calendar")}
+            >
+              {activeTab === "calendar" ? (
+                <LinearGradient
+                  colors={["#4A6FA5", "#8FB8A8"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.tabActive}
+                >
+                  <Text style={styles.tabTextActive}>Calendario</Text>
+                </LinearGradient>
+              ) : (
+                <View style={styles.tabInactive}>
+                  <Text style={styles.tabTextInactive}>Calendario</Text>
+                </View>
+              )}
             </TouchableOpacity>
-            <Text style={styles.monthText}>
-              {monthNames[currentMonth.getMonth()]} {currentMonth.getFullYear()}
-            </Text>
-            <TouchableOpacity onPress={handleNextMonth} style={styles.monthButton}>
-              <Ionicons name="chevron-forward" size={20} color={colors.primary} />
+
+            <TouchableOpacity
+              style={styles.tabPressable}
+              onPress={() => setActiveTab("trips")}
+            >
+              {activeTab === "trips" ? (
+                <LinearGradient
+                  colors={["#4A6FA5", "#8FB8A8"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.tabActive}
+                >
+                  <Text style={styles.tabTextActive}>Mis Viajes</Text>
+                </LinearGradient>
+              ) : (
+                <View style={styles.tabInactive}>
+                  <Text style={styles.tabTextInactive}>Mis Viajes</Text>
+                </View>
+              )}
             </TouchableOpacity>
           </View>
 
-          {/* Días de la semana */}
-          <View style={styles.weekDaysRow}>
-            {['L', 'M', 'M', 'J', 'V', 'S', 'D'].map((day, index) => (
-              <Text key={index} style={styles.weekDayText}>{day}</Text>
-            ))}
-          </View>
+          {activeTab === "calendar" ? (
+            <>
+              <View style={styles.monthSelector}>
+                <TouchableOpacity onPress={handlePrevMonth}>
+                  <Ionicons
+                    name="chevron-back"
+                    size={22}
+                    color={palette.primary}
+                  />
+                </TouchableOpacity>
+                <Text style={styles.monthText}>
+                  {monthNames[currentMonth.getMonth()]} {currentMonth.getFullYear()}
+                </Text>
+                <TouchableOpacity onPress={handleNextMonth}>
+                  <Ionicons
+                    name="chevron-forward"
+                    size={22}
+                    color={palette.primary}
+                  />
+                </TouchableOpacity>
+              </View>
 
-          {/* Calendario completo - SIN PUNTITOS AZULES */}
-          <View style={styles.calendarGrid}>
-            {calendarDays.map((dayData, index) => (
-              <TouchableOpacity
-                key={index}
-                style={[
-                  styles.calendarDay,
-                  dayData?.isToday && styles.todayDay,
-                  selectedDay === dayData?.dayNumber && styles.selectedDay
-                ]}
-                onPress={() => handleDayPress(dayData)}
-                disabled={!dayData}
-              >
-                {dayData && (
-                  <Text style={[
-                    styles.calendarDayText,
-                    dayData.isToday && styles.todayDayText,
-                    selectedDay === dayData.dayNumber && styles.selectedDayText
-                  ]}>
-                    {dayData.dayNumber}
-                  </Text>
+              <View style={styles.calendarCard}>
+                <View style={styles.weekDaysRow}>
+                  {["L", "M", "M", "J", "V", "S", "D"].map((day, index) => (
+                    <Text key={index} style={styles.weekDayText}>
+                      {day}
+                    </Text>
+                  ))}
+                </View>
+
+                <View style={styles.calendarGrid}>
+                  {calendarDays.map((dayData, index) => (
+                    <TouchableOpacity
+                      key={index}
+                      style={[
+                        styles.calendarDay,
+                        dayData?.isToday && styles.todayDay,
+                        selectedDay === dayData?.dayNumber && styles.selectedDay,
+                      ]}
+                      onPress={() => handleDayPress(dayData)}
+                      disabled={!dayData}
+                    >
+                      {dayData && (
+                        <Text
+                          style={[
+                            styles.calendarDayText,
+                            dayData.isToday && styles.todayDayText,
+                            selectedDay === dayData.dayNumber &&
+                              styles.selectedDayText,
+                          ]}
+                        >
+                          {dayData.dayNumber}
+                        </Text>
+                      )}
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+
+              <View style={styles.eventsContainer}>
+                <Text style={styles.sectionTitle}>
+                  Eventos {selectedDay ? `• ${selectedDay}` : ""}
+                </Text>
+
+                {loading ? (
+                  <View style={styles.emptyState}>
+                    <ActivityIndicator size="large" color={palette.primary} />
+                    <Text style={styles.emptyText}>Cargando eventos...</Text>
+                  </View>
+                ) : selectedDay !== null ? (
+                  getSelectedDayEvents().length > 0 ? (
+                    getSelectedDayEvents().map((event) => (
+                      <TouchableOpacity
+                        key={event.id}
+                        style={styles.eventCard}
+                        onPress={() => {
+                          setSelectedEvent(event);
+                          setFormTitle(event.title);
+                          setFormDescription(event.description || "");
+                          setFormStartTime(event.startTime || "");
+                          setFormEndTime(event.endTime || "");
+                          setFormOutfitId(event.outfitId || "");
+                          setModalType("event");
+                          setModalVisible(true);
+                        }}
+                      >
+                        <View style={styles.eventTimeBadge}>
+                          <Text style={styles.eventTimeText}>
+                            {event.startTime || "Todo el día"}
+                          </Text>
+                        </View>
+                        <View style={styles.eventContent}>
+                          <Text style={styles.eventTitle}>{event.title}</Text>
+                          {event.description ? (
+                            <Text style={styles.eventDescription}>
+                              {event.description}
+                            </Text>
+                          ) : null}
+                        </View>
+                        <Ionicons
+                          name="chevron-forward"
+                          size={18}
+                          color={palette.lightMuted}
+                        />
+                      </TouchableOpacity>
+                    ))
+                  ) : (
+                    <View style={styles.emptyStateCard}>
+                      <Ionicons
+                        name="calendar-outline"
+                        size={42}
+                        color="#C7CDD6"
+                      />
+                      <Text style={styles.emptyText}>
+                        No hay eventos para este día
+                      </Text>
+                      <TouchableOpacity
+                        onPress={handleAddEvent}
+                        style={styles.emptyButtonWrap}
+                      >
+                        <LinearGradient
+                          colors={["#4A6FA5", "#8FB8A8"]}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 0 }}
+                          style={styles.emptyButton}
+                        >
+                          <Text style={styles.emptyButtonText}>Agregar Evento</Text>
+                        </LinearGradient>
+                      </TouchableOpacity>
+                    </View>
+                  )
+                ) : (
+                  <View style={styles.emptyStateCard}>
+                    <Ionicons
+                      name="calendar-outline"
+                      size={42}
+                      color="#C7CDD6"
+                    />
+                    <Text style={styles.emptyText}>
+                      Selecciona un día para ver sus eventos
+                    </Text>
+                  </View>
                 )}
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          {/* Eventos del día */}
-          <View style={styles.eventsContainer}>
-            <Text style={styles.sectionTitle}>
-              Eventos {selectedDay ? `• ${selectedDay}` : ''}
-            </Text>
-            
-            {selectedDay !== null ? (
-              getSelectedDayEvents().length > 0 ? (
-                getSelectedDayEvents().map(event => (
+              </View>
+            </>
+          ) : (
+            <View style={styles.tripsContainer}>
+              {loading ? (
+                <View style={styles.emptyState}>
+                  <ActivityIndicator size="large" color={palette.primary} />
+                  <Text style={styles.emptyText}>Cargando viajes...</Text>
+                </View>
+              ) : trips.length === 0 ? (
+                <View style={styles.emptyStateCardLarge}>
+                  <Ionicons
+                    name="airplane-outline"
+                    size={48}
+                    color="#C7CDD6"
+                  />
+                  <Text style={styles.emptyTextLarge}>
+                    No tienes viajes planificados
+                  </Text>
                   <TouchableOpacity
-                    key={event.id}
-                    style={styles.eventCard}
+                    onPress={handleAddTrip}
+                    style={styles.emptyButtonWrap}
+                  >
+                    <LinearGradient
+                      colors={["#4A6FA5", "#8FB8A8"]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                      style={styles.emptyButton}
+                    >
+                      <Text style={styles.emptyButtonText}>Planificar Viaje</Text>
+                    </LinearGradient>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                trips.map((trip) => (
+                  <TouchableOpacity
+                    key={trip.id}
+                    style={styles.tripCard}
                     onPress={() => {
-                      setSelectedEvent(event);
-                      setFormTitle(event.title);
-                      setFormDescription(event.description || "");
-                      setFormStartTime(event.startTime || "");
-                      setFormEndTime(event.endTime || "");
-                      setFormOutfitId(event.outfitId || "");
-                      setModalType('event');
+                      setSelectedEvent(trip);
+                      setFormTitle(trip.title);
+                      setFormDescription(trip.description || "");
+                      setFormDestination((trip as any).destination || "");
+                      setFormStartDate((trip as any).startDate || "");
+                      setFormEndDate((trip as any).endDate || "");
+                      setFormOutfitId(trip.outfitId || "");
+                      setModalType("trip");
                       setModalVisible(true);
                     }}
                   >
-                    <View style={styles.eventTimeBadge}>
-                      <Text style={styles.eventTimeText}>
-                        {event.startTime || 'Todo el día'}
+                    <View style={styles.tripHeader}>
+                      <View style={styles.tripBadge}>
+                        <Text style={styles.tripBadgeText}>
+                          {(trip as any).startDate && (trip as any).endDate
+                            ? `${(trip as any).startDate} - ${(trip as any).endDate}`
+                            : "Próximamente"}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <Text style={styles.tripTitle}>{trip.title}</Text>
+
+                    {(trip as any).destination ? (
+                      <View style={styles.tripDetailItem}>
+                        <Ionicons
+                          name="location-outline"
+                          size={14}
+                          color={palette.secondary}
+                        />
+                        <Text style={styles.tripDetailText}>
+                          {(trip as any).destination}
+                        </Text>
+                      </View>
+                    ) : null}
+
+                    {trip.description ? (
+                      <Text style={styles.tripDescription}>
+                        {trip.description}
                       </Text>
-                    </View>
-                    <View style={styles.eventContent}>
-                      <Text style={styles.eventTitle}>{event.title}</Text>
-                      {event.description && (
-                        <Text style={styles.eventDescription}>{event.description}</Text>
-                      )}
-                    </View>
-                    <Ionicons name="chevron-forward" size={20} color={colors.gray} />
+                    ) : null}
+
+                    {trip.outfitId ? (
+                      <View style={styles.tripOutfit}>
+                        <Ionicons
+                          name="shirt-outline"
+                          size={14}
+                          color={palette.primary}
+                        />
+                        <Text style={styles.tripOutfitText}>Outfit asignado</Text>
+                      </View>
+                    ) : null}
                   </TouchableOpacity>
                 ))
-              ) : (
-                <View style={styles.emptyState}>
-                  <Ionicons name="calendar-outline" size={40} color={colors.gray} />
-                  <Text style={styles.emptyText}>No hay eventos para este día</Text>
-                  <TouchableOpacity style={[styles.emptyButton, { backgroundColor: colors.primary }]} onPress={handleAddEvent}>
-                    <Text style={styles.emptyButtonText}>Agregar Evento</Text>
-                  </TouchableOpacity>
-                </View>
-              )
-            ) : (
-              <View style={styles.emptyState}>
-                <Ionicons name="calendar-outline" size={40} color={colors.gray} />
-                <Text style={styles.emptyText}>Selecciona un día para ver sus eventos</Text>
-              </View>
-            )}
-          </View>
-        </ScrollView>
-      ) : (
-        /* ========== VISTA VIAJES ========== */
-        <ScrollView showsVerticalScrollIndicator={false} style={styles.tripsContainer}>
-          {trips.length === 0 ? (
-            <View style={styles.emptyState}>
-              <Ionicons name="airplane-outline" size={40} color={colors.gray} />
-              <Text style={styles.emptyText}>No tienes viajes planificados</Text>
-              <TouchableOpacity style={[styles.emptyButton, { backgroundColor: colors.secondary }]} onPress={handleAddTrip}>
-                <Text style={styles.emptyButtonText}>Planificar Viaje</Text>
-              </TouchableOpacity>
+              )}
             </View>
-          ) : (
-            trips.map(trip => (
-              <TouchableOpacity
-                key={trip.id}
-                style={styles.tripCard}
-                onPress={() => {
-                  setSelectedEvent(trip);
-                  setFormTitle(trip.title);
-                  setFormDescription(trip.description || "");
-                  setFormDestination((trip as any).destination || "");
-                  setFormStartDate((trip as any).startDate || "");
-                  setFormEndDate((trip as any).endDate || "");
-                  setFormOutfitId(trip.outfitId || "");
-                  setModalType('trip');
-                  setModalVisible(true);
-                }}
-              >
-                <View style={styles.tripHeader}>
-                  <View style={[styles.tripBadge, { backgroundColor: colors.secondary }]}>
-                    <Text style={styles.tripBadgeText}>
-                      {(trip as any).startDate && (trip as any).endDate ? 
-                        `${(trip as any).startDate} - ${(trip as any).endDate}` : 
-                        'Próximamente'}
-                    </Text>
-                  </View>
-                </View>
-                <Text style={styles.tripTitle}>{trip.title}</Text>
-                {(trip as any).destination && (
-                  <View style={styles.tripDetailItem}>
-                    <Ionicons name="location-outline" size={14} color={colors.secondary} />
-                    <Text style={styles.tripDetailText}>{(trip as any).destination}</Text>
-                  </View>
-                )}
-                {trip.description && (
-                  <Text style={styles.tripDescription}>{trip.description}</Text>
-                )}
-                {trip.outfitId && (
-                  <View style={styles.tripOutfit}>
-                    <Ionicons name="shirt-outline" size={14} color={colors.primary} />
-                    <Text style={styles.tripOutfitText}>Outfit asignado</Text>
-                  </View>
-                )}
-              </TouchableOpacity>
-            ))
           )}
-        </ScrollView>
-      )}
+        </View>
+      </ScrollView>
 
-      {/* Modal para crear/editar evento o viaje */}
+      <TouchableOpacity
+        style={styles.fabWrapper}
+        onPress={activeTab === "calendar" ? handleAddEvent : handleAddTrip}
+      >
+        <LinearGradient
+          colors={["#4A6FA5", "#8FB8A8"]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={styles.fab}
+        >
+          <Ionicons
+            name={
+              activeTab === "calendar" ? "calendar-outline" : "airplane-outline"
+            }
+            size={20}
+            color="#FFFFFF"
+          />
+          <Text style={styles.fabText}>
+            {activeTab === "calendar" ? "Nuevo Evento" : "Nuevo Viaje"}
+          </Text>
+        </LinearGradient>
+      </TouchableOpacity>
+
       <Modal
         visible={modalVisible}
-        animationType="slide"
+        animationType="fade"
         transparent
         onRequestClose={() => setModalVisible(false)}
       >
@@ -818,33 +2636,40 @@ export default function CalendarioScreen() {
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>
-                {selectedEvent 
-                  ? (modalType === 'event' ? 'Editar Evento' : 'Editar Viaje')
-                  : (modalType === 'event' ? 'Nuevo Evento' : 'Nuevo Viaje')}
+                {selectedEvent
+                  ? modalType === "event"
+                    ? "Editar Evento"
+                    : "Editar Viaje"
+                  : modalType === "event"
+                  ? "Nuevo Evento"
+                  : "Nuevo Viaje"}
               </Text>
+
               <TouchableOpacity onPress={() => setModalVisible(false)}>
-                <Ionicons name="close" size={24} color={colors.text} />
+                <Ionicons name="close" size={28} color={palette.text} />
               </TouchableOpacity>
             </View>
 
-            {modalType === 'event' ? (
-              /* Formulario para evento normal */
+            {modalType === "event" ? (
               <>
-                {/* Selector de fecha */}
-                <TouchableOpacity 
+                <TouchableOpacity
                   style={styles.dateSelector}
                   onPress={() => setShowEventDatePicker(true)}
                 >
-                  <Ionicons name="calendar-outline" size={20} color={colors.primary} />
+                  <Ionicons
+                    name="calendar-outline"
+                    size={20}
+                    color={palette.primary}
+                  />
                   <Text style={styles.dateSelectorText}>
-                    {selectedDate || 'Seleccionar fecha'}
+                    {selectedDate || "Seleccionar fecha"}
                   </Text>
                 </TouchableOpacity>
 
                 <TextInput
                   style={styles.input}
                   placeholder="Título del evento"
-                  placeholderTextColor="#999"
+                  placeholderTextColor="#A3A3A3"
                   value={formTitle}
                   onChangeText={setFormTitle}
                 />
@@ -852,7 +2677,7 @@ export default function CalendarioScreen() {
                 <TextInput
                   style={[styles.input, styles.textArea]}
                   placeholder="Descripción (opcional)"
-                  placeholderTextColor="#999"
+                  placeholderTextColor="#A3A3A3"
                   value={formDescription}
                   onChangeText={setFormDescription}
                   multiline
@@ -860,25 +2685,31 @@ export default function CalendarioScreen() {
                 />
 
                 <View style={styles.timeRow}>
-                  {/* Hora inicio */}
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     style={[styles.input, styles.timeInput]}
                     onPress={() => setShowStartTimePicker(true)}
                   >
-                    <Text style={formStartTime ? styles.timeText : styles.timePlaceholder}>
-                      {formStartTime || 'HH:MM'}
+                    <Text
+                      style={
+                        formStartTime ? styles.timeText : styles.timePlaceholder
+                      }
+                    >
+                      {formStartTime || "HH:MM"}
                     </Text>
                   </TouchableOpacity>
-                  
+
                   <Text style={styles.timeSeparator}>-</Text>
-                  
-                  {/* Hora fin */}
-                  <TouchableOpacity 
+
+                  <TouchableOpacity
                     style={[styles.input, styles.timeInput]}
                     onPress={() => setShowEndTimePicker(true)}
                   >
-                    <Text style={formEndTime ? styles.timeText : styles.timePlaceholder}>
-                      {formEndTime || 'HH:MM'}
+                    <Text
+                      style={
+                        formEndTime ? styles.timeText : styles.timePlaceholder
+                      }
+                    >
+                      {formEndTime || "HH:MM"}
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -889,26 +2720,39 @@ export default function CalendarioScreen() {
                     <TouchableOpacity
                       style={[
                         styles.outfitOption,
-                        !formOutfitId && { backgroundColor: colors.primary, borderColor: colors.primary }
+                        !formOutfitId && styles.outfitOptionSelected,
                       ]}
                       onPress={() => setFormOutfitId("")}
                     >
-                      <Text style={!formOutfitId ? styles.outfitOptionTextSelected : styles.outfitOptionText}>
+                      <Text
+                        style={
+                          !formOutfitId
+                            ? styles.outfitOptionTextSelected
+                            : styles.outfitOptionText
+                        }
+                      >
                         Sin outfit
                       </Text>
                     </TouchableOpacity>
-                    
-                    {userOutfits.map(outfit => (
+
+                    {userOutfits.map((outfit) => (
                       <TouchableOpacity
                         key={outfit.id}
                         style={[
                           styles.outfitOption,
-                          formOutfitId === outfit.id && { backgroundColor: colors.primary, borderColor: colors.primary }
+                          formOutfitId === outfit.id &&
+                            styles.outfitOptionSelected,
                         ]}
                         onPress={() => setFormOutfitId(outfit.id)}
                       >
-                        <Text style={formOutfitId === outfit.id ? styles.outfitOptionTextSelected : styles.outfitOptionText}>
-                          {outfit.name || 'Outfit'}
+                        <Text
+                          style={
+                            formOutfitId === outfit.id
+                              ? styles.outfitOptionTextSelected
+                              : styles.outfitOptionText
+                          }
+                        >
+                          {outfit.name || "Outfit"}
                         </Text>
                       </TouchableOpacity>
                     ))}
@@ -916,12 +2760,11 @@ export default function CalendarioScreen() {
                 </View>
               </>
             ) : (
-              /* Formulario para viaje */
               <>
                 <TextInput
                   style={styles.input}
                   placeholder="Nombre del viaje"
-                  placeholderTextColor="#999"
+                  placeholderTextColor="#A3A3A3"
                   value={formTitle}
                   onChangeText={setFormTitle}
                 />
@@ -929,31 +2772,37 @@ export default function CalendarioScreen() {
                 <TextInput
                   style={styles.input}
                   placeholder="Destino"
-                  placeholderTextColor="#999"
+                  placeholderTextColor="#A3A3A3"
                   value={formDestination}
                   onChangeText={setFormDestination}
                 />
 
                 <View style={styles.dateRangeRow}>
-                  {/* Fecha inicio */}
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     style={[styles.input, styles.dateInput]}
                     onPress={() => setShowStartDatePicker(true)}
                   >
-                    <Text style={formStartDate ? styles.timeText : styles.timePlaceholder}>
-                      {formStartDate || 'Inicio'}
+                    <Text
+                      style={
+                        formStartDate ? styles.timeText : styles.timePlaceholder
+                      }
+                    >
+                      {formStartDate || "Inicio"}
                     </Text>
                   </TouchableOpacity>
-                  
+
                   <Text style={styles.dateSeparator}>a</Text>
-                  
-                  {/* Fecha fin */}
-                  <TouchableOpacity 
+
+                  <TouchableOpacity
                     style={[styles.input, styles.dateInput]}
                     onPress={() => setShowEndDatePicker(true)}
                   >
-                    <Text style={formEndDate ? styles.timeText : styles.timePlaceholder}>
-                      {formEndDate || 'Fin'}
+                    <Text
+                      style={
+                        formEndDate ? styles.timeText : styles.timePlaceholder
+                      }
+                    >
+                      {formEndDate || "Fin"}
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -961,7 +2810,7 @@ export default function CalendarioScreen() {
                 <TextInput
                   style={[styles.input, styles.textArea]}
                   placeholder="Descripción del viaje (opcional)"
-                  placeholderTextColor="#999"
+                  placeholderTextColor="#A3A3A3"
                   value={formDescription}
                   onChangeText={setFormDescription}
                   multiline
@@ -974,26 +2823,39 @@ export default function CalendarioScreen() {
                     <TouchableOpacity
                       style={[
                         styles.outfitOption,
-                        !formOutfitId && { backgroundColor: colors.primary, borderColor: colors.primary }
+                        !formOutfitId && styles.outfitOptionSelected,
                       ]}
                       onPress={() => setFormOutfitId("")}
                     >
-                      <Text style={!formOutfitId ? styles.outfitOptionTextSelected : styles.outfitOptionText}>
+                      <Text
+                        style={
+                          !formOutfitId
+                            ? styles.outfitOptionTextSelected
+                            : styles.outfitOptionText
+                        }
+                      >
                         Sin outfit
                       </Text>
                     </TouchableOpacity>
-                    
-                    {userOutfits.map(outfit => (
+
+                    {userOutfits.map((outfit) => (
                       <TouchableOpacity
                         key={outfit.id}
                         style={[
                           styles.outfitOption,
-                          formOutfitId === outfit.id && { backgroundColor: colors.primary, borderColor: colors.primary }
+                          formOutfitId === outfit.id &&
+                            styles.outfitOptionSelected,
                         ]}
                         onPress={() => setFormOutfitId(outfit.id)}
                       >
-                        <Text style={formOutfitId === outfit.id ? styles.outfitOptionTextSelected : styles.outfitOptionText}>
-                          {outfit.name || 'Outfit'}
+                        <Text
+                          style={
+                            formOutfitId === outfit.id
+                              ? styles.outfitOptionTextSelected
+                              : styles.outfitOptionText
+                          }
+                        >
+                          {outfit.name || "Outfit"}
                         </Text>
                       </TouchableOpacity>
                     ))}
@@ -1003,29 +2865,32 @@ export default function CalendarioScreen() {
             )}
 
             <View style={styles.modalButtons}>
-              {selectedEvent && (
+              {selectedEvent ? (
                 <TouchableOpacity
-                  style={[styles.button, styles.deleteButton]}
+                  style={styles.deleteButton}
                   onPress={handleDeleteEvent}
                 >
                   <Text style={styles.deleteButtonText}>Eliminar</Text>
                 </TouchableOpacity>
-              )}
-              
-              <TouchableOpacity
-                style={[styles.button, styles.saveButton, { backgroundColor: colors.primary }]}
-                onPress={handleSaveEvent}
-              >
-                <Text style={styles.saveButtonText}>
-                  {selectedEvent ? 'Actualizar' : 'Guardar'}
-                </Text>
+              ) : null}
+
+              <TouchableOpacity style={styles.saveWrap} onPress={handleSaveEvent}>
+                <LinearGradient
+                  colors={["#4A6FA5", "#8FB8A8"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.saveButton}
+                >
+                  <Text style={styles.saveButtonText}>
+                    {selectedEvent ? "Actualizar" : "Guardar"}
+                  </Text>
+                </LinearGradient>
               </TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
 
-      {/* Pickers */}
       <TimePickerModal
         visible={showStartTimePicker}
         onClose={() => setShowStartTimePicker(false)}
@@ -1067,552 +2932,634 @@ export default function CalendarioScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: palette.bg,
   },
-  header: {
-    paddingHorizontal: 20,
-    paddingTop: 60,
-    paddingBottom: 10,
-    backgroundColor: colors.surface,
+  scrollContent: {
+    paddingBottom: 110,
   },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: colors.text,
+  hero: {
+    paddingTop: 64,
+    paddingHorizontal: 24,
+    paddingBottom: 36,
+  },
+  heroTitle: {
+    fontSize: 32,
+    fontWeight: "600",
+    color: "#FFFFFF",
+    marginBottom: 4,
+  },
+  heroSubtitle: {
+    color: "rgba(255,255,255,0.92)",
+    fontSize: 14,
+    lineHeight: 22,
+    maxWidth: 310,
+  },
+  content: {
+    paddingHorizontal: 24,
+    marginTop: 12,
+  },
+  pageTitle: {
+    fontSize: 26,
+    fontWeight: "700",
+    color: palette.text,
+    marginBottom: 18,
   },
   tabContainer: {
-    flexDirection: 'row',
-    backgroundColor: colors.bg,
+    backgroundColor: palette.card,
+    borderRadius: 28,
     padding: 6,
-    marginHorizontal: 16,
-    marginTop: 8,
-    marginBottom: 16,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.1)',
+    marginBottom: 18,
+    flexDirection: "row",
+    shadowColor: "#1F2A44",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
   },
-  tab: {
+  tabPressable: {
     flex: 1,
-    paddingVertical: 12,
-    alignItems: 'center',
-    borderRadius: 12,
   },
   tabActive: {
-    backgroundColor: colors.surface,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    borderRadius: 22,
+    paddingVertical: 16,
+    alignItems: "center",
   },
-  tabText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#999',
+  tabInactive: {
+    borderRadius: 22,
+    paddingVertical: 16,
+    alignItems: "center",
   },
   tabTextActive: {
-    color: colors.text,
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "700",
   },
-  fab: {
-    position: 'absolute',
-    bottom: 20,
-    right: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 30,
-    zIndex: 10,
-    elevation: 5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-  },
-  fabText: {
-    color: 'white',
-    fontWeight: '600',
-    marginLeft: 8,
-    fontSize: 14,
+  tabTextInactive: {
+    color: palette.lightMuted,
+    fontSize: 15,
+    fontWeight: "700",
   },
   monthSelector: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: colors.surface,
-    marginHorizontal: 16,
-    marginTop: 8,
-    marginBottom: 20,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: colors.gray,
-  },
-  monthButton: {
-    padding: 4,
+    backgroundColor: palette.card,
+    borderRadius: 28,
+    paddingHorizontal: 20,
+    paddingVertical: 18,
+    marginBottom: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    shadowColor: "#1F2A44",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.07,
+    shadowRadius: 12,
+    elevation: 3,
   },
   monthText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.text,
-    letterSpacing: 0.5,
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#1F2430",
+    letterSpacing: 1,
+  },
+  calendarCard: {
+    backgroundColor: palette.card,
+    borderRadius: 28,
+    padding: 18,
+    marginBottom: 22,
+    shadowColor: "#1F2A44",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.07,
+    shadowRadius: 12,
+    elevation: 3,
   },
   weekDaysRow: {
-    flexDirection: 'row',
-    paddingHorizontal: 16,
-    marginBottom: 8,
+    flexDirection: "row",
+    marginBottom: 10,
   },
   weekDayText: {
     flex: 1,
-    textAlign: 'center',
+    textAlign: "center",
     fontSize: 12,
-    fontWeight: '600',
-    color: '#999',
-    textTransform: 'uppercase',
+    fontWeight: "600",
+    color: palette.lightMuted,
+    textTransform: "uppercase",
   },
   calendarGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    paddingHorizontal: 12,
-    marginBottom: 24,
+    flexDirection: "row",
+    flexWrap: "wrap",
   },
   calendarDay: {
-    width: '14.28%',
+    width: "14.28%",
     aspectRatio: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 4,
+    borderRadius: 999,
   },
   calendarDayText: {
     fontSize: 16,
-    color: colors.text,
+    color: palette.text,
   },
   todayDay: {
-    backgroundColor: colors.lightGray,
-    borderRadius: 25,
+    backgroundColor: "#F3F4F6",
   },
   todayDayText: {
-    fontWeight: 'bold',
-    color: colors.primary,
+    fontWeight: "700",
+    color: palette.primary,
   },
   selectedDay: {
-    backgroundColor: colors.primary,
-    borderRadius: 25,
+    backgroundColor: palette.primary,
   },
   selectedDayText: {
-    color: 'white',
-    fontWeight: 'bold',
+    color: "#FFFFFF",
+    fontWeight: "700",
   },
   eventsContainer: {
-    flex: 1,
-    paddingHorizontal: 16,
-    paddingBottom: 100,
+    marginBottom: 20,
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: colors.text,
-    marginBottom: 16,
+    fontSize: 22,
+    fontWeight: "700",
+    color: palette.text,
+    marginBottom: 14,
   },
   eventCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderRadius: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: palette.card,
+    borderRadius: 22,
     padding: 16,
     marginBottom: 12,
-    borderWidth: 1,
-    borderColor: colors.gray,
+    shadowColor: "#1F2A44",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
   },
   eventTimeBadge: {
-    backgroundColor: colors.lightGray,
+    backgroundColor: "rgba(74,111,165,0.10)",
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 8,
     borderRadius: 12,
     marginRight: 12,
   },
   eventTimeText: {
     fontSize: 12,
-    fontWeight: '600',
-    color: colors.text,
+    fontWeight: "700",
+    color: palette.primary,
   },
   eventContent: {
     flex: 1,
   },
   eventTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.text,
+    fontSize: 15,
+    fontWeight: "700",
+    color: palette.text,
     marginBottom: 4,
   },
   eventDescription: {
-    fontSize: 14,
-    color: '#999',
+    fontSize: 13,
+    color: palette.muted,
+    lineHeight: 20,
   },
   emptyState: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 40,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 36,
+  },
+  emptyStateCard: {
+    backgroundColor: palette.card,
+    borderRadius: 24,
+    padding: 26,
+    alignItems: "center",
+  },
+  emptyStateCardLarge: {
+    backgroundColor: palette.card,
+    borderRadius: 28,
+    padding: 32,
+    alignItems: "center",
+    shadowColor: "#1F2A44",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.07,
+    shadowRadius: 12,
+    elevation: 3,
   },
   emptyText: {
+    marginTop: 12,
+    color: palette.lightMuted,
+    fontSize: 15,
+    textAlign: "center",
+  },
+  emptyTextLarge: {
+    marginTop: 12,
+    marginBottom: 18,
+    color: palette.lightMuted,
     fontSize: 16,
-    color: '#999',
+    textAlign: "center",
+  },
+  emptyButtonWrap: {
+    minWidth: 180,
     marginTop: 16,
-    marginBottom: 20,
-    textAlign: 'center',
   },
   emptyButton: {
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 30,
+    borderRadius: 999,
+    paddingVertical: 14,
+    alignItems: "center",
   },
   emptyButtonText: {
-    color: 'white',
-    fontWeight: '600',
-    fontSize: 14,
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "700",
   },
   tripsContainer: {
-    flex: 1,
-    paddingHorizontal: 16,
-    paddingBottom: 100,
+    marginBottom: 20,
   },
   tripCard: {
-    backgroundColor: colors.surface,
+    backgroundColor: palette.card,
     borderRadius: 24,
     padding: 20,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: colors.gray,
+    marginBottom: 14,
+    shadowColor: "#1F2A44",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
   },
   tripHeader: {
     marginBottom: 12,
   },
   tripBadge: {
     paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 20,
-    alignSelf: 'flex-start',
+    paddingVertical: 6,
+    borderRadius: 999,
+    alignSelf: "flex-start",
+    backgroundColor: "rgba(143,184,168,0.14)",
   },
   tripBadgeText: {
-    color: colors.surface,
-    fontSize: 10,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    color: palette.secondary,
+    fontSize: 11,
+    fontWeight: "700",
   },
   tripTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: colors.text,
+    fontSize: 18,
+    fontWeight: "700",
+    color: palette.text,
     marginBottom: 8,
   },
   tripDetailItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     marginBottom: 8,
-    gap: 6,
   },
   tripDetailText: {
     fontSize: 14,
-    color: '#666',
+    color: palette.muted,
+    marginLeft: 6,
   },
   tripDescription: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 8,
+    fontSize: 13,
+    color: palette.muted,
+    marginTop: 6,
     lineHeight: 20,
   },
   tripOutfit: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     marginTop: 12,
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: colors.gray,
-    gap: 6,
+    borderTopColor: palette.border,
   },
   tripOutfitText: {
     fontSize: 14,
-    color: colors.primary,
-    fontWeight: '600',
+    color: palette.primary,
+    fontWeight: "600",
+    marginLeft: 6,
+  },
+  fabWrapper: {
+    position: "absolute",
+    right: 24,
+    bottom: 24,
+  },
+  fab: {
+    minWidth: 170,
+    height: 60,
+    borderRadius: 999,
+    paddingHorizontal: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#4A6FA5",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.25,
+    shadowRadius: 14,
+    elevation: 8,
+  },
+  fabText: {
+    color: "#FFFFFF",
+    fontWeight: "700",
+    marginLeft: 8,
+    fontSize: 15,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "rgba(0,0,0,0.38)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 16,
   },
   modalContent: {
-    width: '90%',
-    backgroundColor: colors.surface,
-    borderRadius: 32,
-    padding: 20,
-    maxHeight: '80%',
+    width: "100%",
+    backgroundColor: palette.card,
+    borderRadius: 30,
+    padding: 22,
+    maxHeight: "85%",
   },
   modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 14,
   },
   modalTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: colors.text,
+    fontSize: 24,
+    fontWeight: "700",
+    color: palette.text,
   },
   dateSelector: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.gray,
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 16,
-    gap: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1.5,
+    borderColor: "#D9D6CF",
+    borderRadius: 22,
+    padding: 16,
+    marginBottom: 14,
   },
   dateSelectorText: {
-    fontSize: 14,
-    color: colors.text,
+    fontSize: 16,
+    color: palette.text,
+    marginLeft: 12,
     flex: 1,
   },
   input: {
-    borderWidth: 1,
-    borderColor: colors.gray,
-    borderRadius: 16,
-    padding: 14,
-    fontSize: 14,
-    marginBottom: 16,
-    color: colors.text,
+    borderWidth: 1.5,
+    borderColor: "#D9D6CF",
+    borderRadius: 22,
+    padding: 16,
+    fontSize: 16,
+    marginBottom: 14,
+    color: palette.text,
+    backgroundColor: "#FFFFFF",
   },
   textArea: {
-    minHeight: 80,
-    textAlignVertical: 'top',
+    minHeight: 120,
+    textAlignVertical: "top",
+    paddingTop: 16,
   },
   timeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 14,
   },
   timeInput: {
     flex: 1,
     marginBottom: 0,
-    justifyContent: 'center',
+    justifyContent: "center",
   },
   timeText: {
-    fontSize: 14,
-    color: colors.text,
+    fontSize: 15,
+    color: palette.text,
   },
   timePlaceholder: {
-    fontSize: 14,
-    color: '#999',
+    fontSize: 15,
+    color: "#A3A3A3",
   },
   timeSeparator: {
     marginHorizontal: 12,
-    fontSize: 16,
-    color: colors.gray,
+    fontSize: 18,
+    color: "#C4C0B8",
   },
   dateRangeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 14,
   },
   dateInput: {
     flex: 1,
     marginBottom: 0,
-    justifyContent: 'center',
+    justifyContent: "center",
   },
   dateSeparator: {
     marginHorizontal: 12,
-    fontSize: 14,
-    color: colors.gray,
+    fontSize: 16,
+    color: "#C4C0B8",
   },
   outfitSelector: {
-    marginBottom: 20,
+    marginBottom: 14,
   },
   label: {
-    fontSize: 14,
-    color: colors.text,
+    fontSize: 15,
+    color: palette.text,
     marginBottom: 12,
-    fontWeight: '500',
+    fontWeight: "700",
   },
   outfitOption: {
     paddingHorizontal: 16,
     paddingVertical: 10,
-    borderRadius: 20,
+    borderRadius: 999,
     borderWidth: 1,
-    borderColor: colors.gray,
+    borderColor: palette.border,
     marginRight: 10,
+    backgroundColor: "#FFFFFF",
+  },
+  outfitOptionSelected: {
+    backgroundColor: palette.primary,
+    borderColor: palette.primary,
   },
   outfitOptionText: {
-    color: colors.text,
+    color: palette.text,
     fontSize: 13,
-    fontWeight: '500',
+    fontWeight: "600",
   },
   outfitOptionTextSelected: {
-    color: colors.surface,
+    color: "#FFFFFF",
     fontSize: 13,
-    fontWeight: '500',
+    fontWeight: "600",
   },
   modalButtons: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 12,
-    marginTop: 8,
-  },
-  button: {
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 16,
-    minWidth: 100,
-    alignItems: 'center',
-  },
-  saveButton: {
-    backgroundColor: colors.primary,
-  },
-  saveButtonText: {
-    color: colors.surface,
-    fontWeight: '600',
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    marginTop: 12,
   },
   deleteButton: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.cta,
+    borderWidth: 1.5,
+    borderColor: palette.danger,
+    borderRadius: 18,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    backgroundColor: palette.dangerSoft,
+    marginRight: 10,
+    alignItems: "center",
+    justifyContent: "center",
   },
   deleteButtonText: {
-    color: colors.cta,
-    fontWeight: '600',
+    color: palette.danger,
+    fontWeight: "700",
   },
-  // Estilos para los pickers
+  saveWrap: {
+    minWidth: 150,
+  },
+  saveButton: {
+    borderRadius: 18,
+    paddingVertical: 16,
+    alignItems: "center",
+  },
+  saveButtonText: {
+    color: "#FFFFFF",
+    fontWeight: "700",
+    fontSize: 15,
+  },
   pickerModal: {
-    width: '80%',
-    backgroundColor: colors.surface,
-    borderRadius: 24,
+    width: "85%",
+    backgroundColor: palette.card,
+    borderRadius: 28,
     padding: 20,
-    maxHeight: '70%',
+    maxHeight: "75%",
   },
   pickerTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: colors.text,
-    textAlign: 'center',
+    fontSize: 20,
+    fontWeight: "700",
+    color: palette.text,
+    textAlign: "center",
     marginBottom: 20,
   },
   timePickerContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    justifyContent: "space-between",
     marginBottom: 20,
   },
   pickerColumn: {
     flex: 1,
-    alignItems: 'center',
+    alignItems: "center",
   },
   pickerLabel: {
     fontSize: 14,
-    fontWeight: '600',
-    color: colors.text,
+    fontWeight: "700",
+    color: palette.text,
     marginBottom: 10,
   },
   pickerScroll: {
     maxHeight: 150,
-    width: '100%',
+    width: "100%",
   },
   pickerItem: {
-    paddingVertical: 8,
-    alignItems: 'center',
+    paddingVertical: 10,
+    alignItems: "center",
+    borderRadius: 10,
   },
   pickerItemSelected: {
-    backgroundColor: colors.primary,
-    borderRadius: 8,
+    backgroundColor: palette.primary,
   },
   pickerItemText: {
     fontSize: 16,
-    color: colors.text,
+    color: palette.text,
   },
   pickerItemTextSelected: {
-    color: 'white',
-    fontWeight: '600',
+    color: "#FFFFFF",
+    fontWeight: "700",
   },
   periodButton: {
     paddingVertical: 10,
-    paddingHorizontal: 20,
+    paddingHorizontal: 18,
     borderWidth: 1,
-    borderColor: colors.gray,
-    borderRadius: 8,
+    borderColor: palette.border,
+    borderRadius: 12,
     marginVertical: 4,
-    width: '80%',
-    alignItems: 'center',
+    width: "85%",
+    alignItems: "center",
   },
   periodButtonSelected: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
+    backgroundColor: palette.primary,
+    borderColor: palette.primary,
   },
   periodButtonText: {
-    fontSize: 16,
-    color: colors.text,
+    fontSize: 15,
+    color: palette.text,
   },
   periodButtonTextSelected: {
-    color: 'white',
-    fontWeight: '600',
+    color: "#FFFFFF",
+    fontWeight: "700",
   },
   pickerButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginTop: 20,
+    flexDirection: "row",
+    justifyContent: "space-around",
+    marginTop: 18,
   },
   pickerButton: {
     paddingVertical: 12,
     paddingHorizontal: 24,
-    borderRadius: 20,
+    borderRadius: 18,
     minWidth: 120,
-    alignItems: 'center',
+    alignItems: "center",
   },
   pickerButtonCancel: {
-    backgroundColor: colors.surface,
+    backgroundColor: "#FFFFFF",
     borderWidth: 1,
-    borderColor: colors.gray,
+    borderColor: palette.border,
   },
   pickerButtonConfirm: {
-    backgroundColor: colors.primary,
+    backgroundColor: palette.primary,
   },
   pickerButtonTextCancel: {
-    color: colors.text,
-    fontWeight: '600',
+    color: palette.text,
+    fontWeight: "700",
   },
   pickerButtonTextConfirm: {
-    color: 'white',
-    fontWeight: '600',
+    color: "#FFFFFF",
+    fontWeight: "700",
   },
   datePickerHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 20,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 18,
   },
   datePickerMonth: {
     fontSize: 16,
-    fontWeight: '600',
-    color: colors.text,
+    fontWeight: "700",
+    color: palette.text,
   },
-  daysGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginBottom: 20,
+  weekDaysRowMini: {
+    flexDirection: "row",
+    marginBottom: 8,
+  },
+  weekDayTextMini: {
+    flex: 1,
+    textAlign: "center",
+    fontSize: 12,
+    color: palette.lightMuted,
+    fontWeight: "600",
+  },
+  daysGridMini: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    marginBottom: 12,
   },
   datePickerDay: {
-    width: '14.28%',
+    width: "14.28%",
     aspectRatio: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
+    borderRadius: 999,
   },
   datePickerDaySelected: {
-    backgroundColor: colors.primary,
-    borderRadius: 20,
+    backgroundColor: palette.primary,
   },
   datePickerDayText: {
     fontSize: 14,
-    color: colors.text,
+    color: palette.text,
   },
   datePickerDayTextSelected: {
-    color: 'white',
-    fontWeight: '600',
+    color: "#FFFFFF",
+    fontWeight: "700",
   },
 });

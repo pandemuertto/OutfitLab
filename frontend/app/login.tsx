@@ -1,4 +1,4 @@
-//login.tsx
+// app/login.tsx
 // import { post } from "../src/api";
 // import { Ionicons } from "@expo/vector-icons";
 // import { router } from "expo-router";
@@ -18,56 +18,47 @@
 // import * as WebBrowser from "expo-web-browser";
 // import * as Google from "expo-auth-session/providers/google";
 // import * as Facebook from "expo-auth-session/providers/facebook";
-// import formStyles from '../src/styles/forms';
-
-// import { useRouter } from "expo-router";
-// import { useAuth } from "../src/contexts/auth"; // <- importante
+// import AsyncStorage from "@react-native-async-storage/async-storage";
+// import formStyles from "../src/styles/forms";
+// import { useAuth } from "../src/contexts/auth";
 
 // WebBrowser.maybeCompleteAuthSession();
 
 // export default function LoginScreen() {
-//   const router = useRouter();
-//   const { login, isLoading } = useAuth();  // <- aquí usamos el contexto
+//   const { login } = useAuth(); // 👈 para actualizar el usuario global
+
 //   const [email, setEmail] = useState("");
 //   const [password, setPassword] = useState("");
-//   const [submitting, setSubmitting] = useState(false);
-//   // const [email, setEmail] = useState("");
-//   // const [password, setPassword] = useState("");
 //   const [showPassword, setShowPassword] = useState(false);
 
-//   const redirectUri = __DEV__ 
-//   ? "https://auth.expo.dev/@pandemuerttoo/outfit-lab"
-//   : AuthSession.makeRedirectUri({ scheme: "outfitlab" });
+//   const redirectUri = __DEV__
+//     ? "https://auth.expo.dev/@pandemuerttoo/outfit-lab"
+//     : AuthSession.makeRedirectUri({ scheme: "outfitlab" });
+
 //   console.log("redirectUri ->", redirectUri);
 
 //   // --- Google (id_token) ---
-// const [gRequest, gResponse, gPromptAsync] = Google.useAuthRequest({
-//   clientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || "",
-//   // androidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID ?? "",
-//   scopes: ["profile", "email"], 
-//   redirectUri: redirectUri,
-// });
+//   const [gRequest, gResponse, gPromptAsync] = Google.useAuthRequest({
+//     clientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || "",
+//     scopes: ["profile", "email"],
+//     redirectUri,
+//   });
 
-// useEffect(() => {
-//   if (gResponse?.type === "success" && gResponse.params?.id_token) {
-//     handleGoogleWithToken(gResponse.params.id_token);
-//   }
-// }, [gResponse]);
-
-// const onGooglePress = async () => {
-//   await gPromptAsync();  // ✅ Sin useProxy
-// };
+//   useEffect(() => {
+//     if (gResponse?.type === "success" && gResponse.params?.id_token) {
+//       handleGoogleWithToken(gResponse.params.id_token);
+//     }
+//   }, [gResponse]);
 
 //   // --- Facebook (access_token) ---
 //   const [fbRequest, fbResponse, fbPromptAsync] = Facebook.useAuthRequest({
 //     clientId: process.env.EXPO_PUBLIC_FB_APP_ID || "",
-//     scopes: ["profile", "email"], 
-//     redirectUri: redirectUri,
+//     scopes: ["public_profile", "email"],
+//     redirectUri,
 //   });
 
 //   useEffect(() => {
 //     if (fbResponse?.type === "success") {
-//       // TS no conoce 'authentication', así que hacemos un cast a any
 //       const accessToken = (fbResponse as any)?.authentication?.accessToken;
 //       if (accessToken) {
 //         handleFacebookWithToken(accessToken);
@@ -75,33 +66,58 @@
 //     }
 //   }, [fbResponse]);
 
-//   const onFacebookPress = async () => {
-//     await gPromptAsync();  // ✅ Sin useProxy
-//   }
-
-//   // ---------------- Email / password ----------------
+//   // ========== EMAIL / PASSWORD ==========
 //   const handleLogin = async () => {
 //     if (!email || !password) {
 //       Alert.alert("Error", "Por favor completa todos los campos");
 //       return;
 //     }
+
 //     try {
-//       const data = await post("/auth/login", { email, password }); // { token, user }
-//       setSubmitting(true);
-//       await login(email.trim(), password);  
-//       // TODO: guarda token si lo necesitas y navega
-//       // await AsyncStorage.setItem('token', data.token);
-//       Alert.alert("Éxito", `Bienvenido, ${data.user?.name ?? ""}`);
-//       router.replace("./(tabs)");
+//       const data = await post("/auth/login", { email, password }); // { user, token, isNewUser? }
+
+//       if (!data.user || !data.user.id) {
+//         throw new Error("Respuesta de login inválida (falta user.id)");
+//       }
+
+//       // 👉 Actualizar contexto + guardar en AsyncStorage
+//       await login(
+//         {
+//           id: data.user.id,
+//           name: data.user.name,
+//           email: data.user.email,
+//         },
+//         data.token
+//       );
+
+//       // Mantener tu flag de "nuevo usuario"
+//       if (data.isNewUser || data.user?.isNewUser) {
+//         await AsyncStorage.setItem("isNewUser", "true");
+//         Alert.alert(
+//           "¡Bienvenido!",
+//           `Hola ${data.user?.name ?? ""}. Completa tu perfil para continuar.`
+//         );
+//       } else {
+//         await AsyncStorage.removeItem("isNewUser");
+//         Alert.alert(
+//           "Éxito",
+//           `Bienvenido de nuevo, ${data.user?.name ?? ""}`
+//         );
+//       }
+
+//       router.replace("/(tabs)");
 //     } catch (err: any) {
 //       console.error("LOGIN ERROR:", err?.message || err);
-//       Alert.alert("Error", err?.message || "No se pudo conectar con el servidor");
-//     } finally {
-//       setSubmitting(false);
+//       Alert.alert(
+//         "Error",
+//         err?.response?.data?.message ||
+//           err?.message ||
+//           "No se pudo conectar con el servidor"
+//       );
 //     }
 //   };
 
-//   // ---------------- Google ----------------
+//   // ========== GOOGLE ==========
 //   const handleGoogle = async () => {
 //     try {
 //       await gPromptAsync();
@@ -112,15 +128,48 @@
 
 //   const handleGoogleWithToken = async (idToken: string) => {
 //     try {
-//       const data = await post("/auth/google", { idToken }); // { token, user }
-//       Alert.alert("Éxito", `Hola, ${data.user?.name ?? "Google User"}`);
-//       router.replace("/");
+//       const data = await post("/auth/google", { idToken }); // { user, token, isNewUser? }
+
+//       if (!data.user || !data.user.id) {
+//         throw new Error("Respuesta de Google inválida (falta user.id)");
+//       }
+
+//       await login(
+//         {
+//           id: data.user.id,
+//           name: data.user.name,
+//           email: data.user.email,
+//         },
+//         data.token
+//       );
+
+//       if (data.isNewUser || data.user?.isNewUser) {
+//         await AsyncStorage.setItem("isNewUser", "true");
+//         Alert.alert(
+//           "¡Bienvenido!",
+//           `Hola ${data.user?.name ?? ""}. Completa tu perfil.`
+//         );
+//       } else {
+//         await AsyncStorage.removeItem("isNewUser");
+//         Alert.alert(
+//           "Éxito",
+//           `Hola, ${data.user?.name ?? "Google User"}`
+//         );
+//       }
+
+//       router.replace("/(tabs)");
 //     } catch (e: any) {
-//       Alert.alert("Google", e?.message || "Error al autenticar con Google");
+//       console.error(e);
+//       Alert.alert(
+//         "Google",
+//         e?.response?.data?.message ||
+//           e?.message ||
+//           "Error al autenticar con Google"
+//       );
 //     }
 //   };
 
-//   // ---------------- Facebook ----------------
+//   // ========== FACEBOOK ==========
 //   const handleFacebook = async () => {
 //     try {
 //       await fbPromptAsync();
@@ -131,42 +180,119 @@
 
 //   const handleFacebookWithToken = async (accessToken: string) => {
 //     try {
-//       const data = await post("/auth/facebook", { accessToken }); // { token, user }
-//       Alert.alert("Éxito", `Hola, ${data.user?.name ?? "Facebook User"}`);
-//       router.replace("/");
+//       const data = await post("/auth/facebook", { accessToken }); // { user, token, isNewUser? }
+
+//       if (!data.user || !data.user.id) {
+//         throw new Error("Respuesta de Facebook inválida (falta user.id)");
+//       }
+
+//       await login(
+//         {
+//           id: data.user.id,
+//           name: data.user.name,
+//           email: data.user.email,
+//         },
+//         data.token
+//       );
+
+//       if (data.isNewUser || data.user?.isNewUser) {
+//         await AsyncStorage.setItem("isNewUser", "true");
+//         Alert.alert(
+//           "¡Bienvenido!",
+//           `Hola ${data.user?.name ?? ""}. Completa tu perfil.`
+//         );
+//       } else {
+//         await AsyncStorage.removeItem("isNewUser");
+//         Alert.alert(
+//           "Éxito",
+//           `Hola, ${data.user?.name ?? "Facebook User"}`
+//         );
+//       }
+
+//       router.replace("/(tabs)");
 //     } catch (e: any) {
-//       Alert.alert("Facebook", e?.message || "Error al autenticar con Facebook");
+//       console.error(e);
+//       Alert.alert(
+//         "Facebook",
+//         e?.response?.data?.message ||
+//           e?.message ||
+//           "Error al autenticar con Facebook"
+//       );
 //     }
 //   };
 
+//   // ========== UI ==========
 //   return (
 //     <KeyboardAvoidingView
-//       style={{ flex: 1, backgroundColor: '#fff' }}
+//       style={{ flex: 1, backgroundColor: "#fff" }}
 //       behavior={Platform.OS === "ios" ? "padding" : "height"}
 //     >
-//       <ScrollView contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 30, paddingTop: 60, paddingBottom: 40 }}>
+//       <ScrollView
+//         contentContainerStyle={{
+//           flexGrow: 1,
+//           paddingHorizontal: 30,
+//           paddingTop: 60,
+//           paddingBottom: 40,
+//         }}
+//       >
 //         <View style={{ marginBottom: 50, alignItems: "center" }}>
-//           <TouchableOpacity style={{ alignSelf: "flex-start", marginBottom: 20 }} onPress={() => router.back()}>
+//           <TouchableOpacity
+//             style={{ alignSelf: "flex-start", marginBottom: 20 }}
+//             onPress={() => router.back()}
+//           >
 //             <Ionicons name="arrow-back" size={24} color="#333" />
 //           </TouchableOpacity>
 
-//           <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 20 }}>
+//           <View
+//             style={{
+//               flexDirection: "row",
+//               alignItems: "center",
+//               marginBottom: 20,
+//             }}
+//           >
 //             <Image
 //               source={require("../assets/images/icom.png")}
 //               style={{ width: 40, height: 40, marginRight: 10 }}
 //               resizeMode="contain"
 //             />
-//             <Text style={{ fontSize: 28, fontWeight: "bold", color: "#667eea" }}>OutfitLab</Text>
+//             <Text
+//               style={{
+//                 fontSize: 28,
+//                 fontWeight: "bold",
+//                 color: "#667eea",
+//               }}
+//             >
+//               OutfitLab
+//             </Text>
 //           </View>
 
-//           <Text style={{ fontSize: 24, fontWeight: "bold", color: "#333", marginBottom: 10, textAlign: "center" }}>Bienvenido de nuevo</Text>
-//           <Text style={{ fontSize: 16, color: "#666", textAlign: "center" }}>Inicia sesión en tu cuenta</Text>
+//           <Text
+//             style={{
+//               fontSize: 24,
+//               fontWeight: "bold",
+//               color: "#333",
+//               marginBottom: 10,
+//               textAlign: "center",
+//             }}
+//           >
+//             Bienvenido de nuevo
+//           </Text>
+//           <Text
+//             style={{ fontSize: 16, color: "#666", textAlign: "center" }}
+//           >
+//             Inicia sesión en tu cuenta
+//           </Text>
 //         </View>
 
 //         <View style={{ marginBottom: 30 }}>
 //           {/* Email */}
 //           <View style={formStyles.inputContainer}>
-//             <Ionicons name="mail-outline" size={20} color="#666" style={formStyles.inputIcon} />
+//             <Ionicons
+//               name="mail-outline"
+//               size={20}
+//               color="#666"
+//               style={formStyles.inputIcon}
+//             />
 //             <TextInput
 //               style={formStyles.input}
 //               placeholder="Correo electrónico"
@@ -180,7 +306,12 @@
 
 //           {/* Password */}
 //           <View style={formStyles.inputContainer}>
-//             <Ionicons name="lock-closed-outline" size={20} color="#666" style={formStyles.inputIcon} />
+//             <Ionicons
+//               name="lock-closed-outline"
+//               size={20}
+//               color="#666"
+//               style={formStyles.inputIcon}
+//             />
 //             <TextInput
 //               style={formStyles.input}
 //               placeholder="Contraseña"
@@ -202,17 +333,36 @@
 //           </View>
 
 //           <TouchableOpacity style={formStyles.forgotPassword}>
-//             <Text style={formStyles.forgotPasswordText}>¿Olvidaste tu contraseña?</Text>
+//             <Text style={formStyles.forgotPasswordText}>
+//               ¿Olvidaste tu contraseña?
+//             </Text>
 //           </TouchableOpacity>
 
-//           <TouchableOpacity style={formStyles.button} onPress={handleLogin} disabled={submitting || isLoading}>
+//           <TouchableOpacity
+//             style={formStyles.button}
+//             onPress={handleLogin}
+//           >
 //             <Text style={formStyles.buttonText}>Iniciar sesión</Text>
 //           </TouchableOpacity>
 
 //           {/* Social */}
-//           <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 25 }}>
+//           <View
+//             style={{
+//               flexDirection: "row",
+//               alignItems: "center",
+//               marginBottom: 25,
+//             }}
+//           >
 //             <View style={{ flex: 1, height: 1, backgroundColor: "#ddd" }} />
-//             <Text style={{ marginHorizontal: 15, color: "#666", fontSize: 14 }}>o continúa con</Text>
+//             <Text
+//               style={{
+//                 marginHorizontal: 15,
+//                 color: "#666",
+//                 fontSize: 14,
+//               }}
+//             >
+//               o continúa con
+//             </Text>
 //             <View style={{ flex: 1, height: 1, backgroundColor: "#ddd" }} />
 //           </View>
 
@@ -235,10 +385,26 @@
 //           </TouchableOpacity>
 //         </View>
 
-//         <View style={{ flexDirection: "row", justifyContent: "center", marginTop: "auto" }}>
-//           <Text style={{ color: "#666", fontSize: 14 }}>¿No tienes una cuenta? </Text>
+//         <View
+//           style={{
+//             flexDirection: "row",
+//             justifyContent: "center",
+//             marginTop: "auto",
+//           }}
+//         >
+//           <Text style={{ color: "#666", fontSize: 14 }}>
+//             ¿No tienes una cuenta?{" "}
+//           </Text>
 //           <TouchableOpacity onPress={() => router.push("/register")}>
-//             <Text style={{ color: "#667eea", fontSize: 14, fontWeight: "600" }}>Regístrate</Text>
+//             <Text
+//               style={{
+//                 color: "#667eea",
+//                 fontSize: 14,
+//                 fontWeight: "600",
+//               }}
+//             >
+//               Regístrate
+//             </Text>
 //           </TouchableOpacity>
 //         </View>
 //       </ScrollView>
@@ -246,59 +412,56 @@
 //   );
 // }
 
-// app/login.tsx
-import { post } from "../src/api";
-import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Alert,
-  Image,
+  Animated,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
   ScrollView,
+  StyleSheet,
   Text,
   TextInput,
-  TouchableOpacity,
   View,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { router } from "expo-router";
+
 import * as AuthSession from "expo-auth-session";
 import * as WebBrowser from "expo-web-browser";
 import * as Google from "expo-auth-session/providers/google";
 import * as Facebook from "expo-auth-session/providers/facebook";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import formStyles from "../src/styles/forms";
+
+import { post } from "../src/api";
 import { useAuth } from "../src/contexts/auth";
 
 WebBrowser.maybeCompleteAuthSession();
 
 export default function LoginScreen() {
-  const { login } = useAuth(); // 👈 para actualizar el usuario global
+  const { login } = useAuth();
 
+  const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+
+  const headerAnim = useRef(new Animated.Value(0)).current;
+  const cardAnim = useRef(new Animated.Value(40)).current;
+  const cardOpacity = useRef(new Animated.Value(0)).current;
 
   const redirectUri = __DEV__
     ? "https://auth.expo.dev/@pandemuerttoo/outfit-lab"
     : AuthSession.makeRedirectUri({ scheme: "outfitlab" });
 
-  console.log("redirectUri ->", redirectUri);
-
-  // --- Google (id_token) ---
   const [gRequest, gResponse, gPromptAsync] = Google.useAuthRequest({
     clientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || "",
     scopes: ["profile", "email"],
     redirectUri,
   });
 
-  useEffect(() => {
-    if (gResponse?.type === "success" && gResponse.params?.id_token) {
-      handleGoogleWithToken(gResponse.params.id_token);
-    }
-  }, [gResponse]);
-
-  // --- Facebook (access_token) ---
   const [fbRequest, fbResponse, fbPromptAsync] = Facebook.useAuthRequest({
     clientId: process.env.EXPO_PUBLIC_FB_APP_ID || "",
     scopes: ["public_profile", "email"],
@@ -306,15 +469,66 @@ export default function LoginScreen() {
   });
 
   useEffect(() => {
-    if (fbResponse?.type === "success") {
-      const accessToken = (fbResponse as any)?.authentication?.accessToken;
-      if (accessToken) {
-        handleFacebookWithToken(accessToken);
-      }
-    }
-  }, [fbResponse]);
+    Animated.parallel([
+      Animated.timing(headerAnim, {
+        toValue: 1,
+        duration: 700,
+        useNativeDriver: true,
+      }),
+      Animated.parallel([
+        Animated.timing(cardAnim, {
+          toValue: 0,
+          duration: 700,
+          delay: 150,
+          useNativeDriver: true,
+        }),
+        Animated.timing(cardOpacity, {
+          toValue: 1,
+          duration: 700,
+          delay: 150,
+          useNativeDriver: true,
+        }),
+      ]),
+    ]).start();
+  }, [headerAnim, cardAnim, cardOpacity]);
 
-  // ========== EMAIL / PASSWORD ==========
+  useEffect(() => {
+    if (gResponse?.type === "success" && gResponse.params?.id_token) {
+      handleGoogleWithToken(gResponse.params.id_token);
+    }
+  }, [gResponse]);
+
+  
+  const goAfterAuth = async (data: any) => {
+    const onboardingData = await AsyncStorage.getItem("onboardingData");
+    const storedIsNewUser = await AsyncStorage.getItem("isNewUser");
+    const isNewUser =
+      data?.isNewUser || data?.user?.isNewUser || storedIsNewUser === "true";
+
+    if (isNewUser) {
+      await AsyncStorage.setItem("isNewUser", "true");
+      await AsyncStorage.removeItem("onboardingData");
+
+      Alert.alert(
+        "¡Bienvenido!",
+        `Hola ${data.user?.name ?? ""}. Completa tu perfil para continuar.`
+      );
+
+      router.replace("/onboarding");
+      return;
+    }
+
+    await AsyncStorage.removeItem("isNewUser");
+
+    if (!onboardingData) {
+      router.replace("/onboarding");
+      return;
+    }
+
+    Alert.alert("Éxito", `Bienvenido, ${data.user?.name ?? ""}`);
+    router.replace("/(tabs)");
+  };
+
   const handleLogin = async () => {
     if (!email || !password) {
       Alert.alert("Error", "Por favor completa todos los campos");
@@ -322,13 +536,12 @@ export default function LoginScreen() {
     }
 
     try {
-      const data = await post("/auth/login", { email, password }); // { user, token, isNewUser? }
+      const data = await post("/auth/login", { email, password });
 
       if (!data.user || !data.user.id) {
         throw new Error("Respuesta de login inválida (falta user.id)");
       }
 
-      // 👉 Actualizar contexto + guardar en AsyncStorage
       await login(
         {
           id: data.user.id,
@@ -338,22 +551,7 @@ export default function LoginScreen() {
         data.token
       );
 
-      // Mantener tu flag de "nuevo usuario"
-      if (data.isNewUser || data.user?.isNewUser) {
-        await AsyncStorage.setItem("isNewUser", "true");
-        Alert.alert(
-          "¡Bienvenido!",
-          `Hola ${data.user?.name ?? ""}. Completa tu perfil para continuar.`
-        );
-      } else {
-        await AsyncStorage.removeItem("isNewUser");
-        Alert.alert(
-          "Éxito",
-          `Bienvenido de nuevo, ${data.user?.name ?? ""}`
-        );
-      }
-
-      router.replace("/(tabs)");
+      await goAfterAuth(data);
     } catch (err: any) {
       console.error("LOGIN ERROR:", err?.message || err);
       Alert.alert(
@@ -365,7 +563,6 @@ export default function LoginScreen() {
     }
   };
 
-  // ========== GOOGLE ==========
   const handleGoogle = async () => {
     try {
       await gPromptAsync();
@@ -376,7 +573,7 @@ export default function LoginScreen() {
 
   const handleGoogleWithToken = async (idToken: string) => {
     try {
-      const data = await post("/auth/google", { idToken }); // { user, token, isNewUser? }
+      const data = await post("/auth/google", { idToken });
 
       if (!data.user || !data.user.id) {
         throw new Error("Respuesta de Google inválida (falta user.id)");
@@ -391,23 +588,9 @@ export default function LoginScreen() {
         data.token
       );
 
-      if (data.isNewUser || data.user?.isNewUser) {
-        await AsyncStorage.setItem("isNewUser", "true");
-        Alert.alert(
-          "¡Bienvenido!",
-          `Hola ${data.user?.name ?? ""}. Completa tu perfil.`
-        );
-      } else {
-        await AsyncStorage.removeItem("isNewUser");
-        Alert.alert(
-          "Éxito",
-          `Hola, ${data.user?.name ?? "Google User"}`
-        );
-      }
-
-      router.replace("/(tabs)");
+      await goAfterAuth(data);
     } catch (e: any) {
-      console.error(e);
+      console.error("GOOGLE ERROR:", e);
       Alert.alert(
         "Google",
         e?.response?.data?.message ||
@@ -417,7 +600,6 @@ export default function LoginScreen() {
     }
   };
 
-  // ========== FACEBOOK ==========
   const handleFacebook = async () => {
     try {
       await fbPromptAsync();
@@ -426,236 +608,402 @@ export default function LoginScreen() {
     }
   };
 
-  const handleFacebookWithToken = async (accessToken: string) => {
-    try {
-      const data = await post("/auth/facebook", { accessToken }); // { user, token, isNewUser? }
+  
 
-      if (!data.user || !data.user.id) {
-        throw new Error("Respuesta de Facebook inválida (falta user.id)");
-      }
-
-      await login(
-        {
-          id: data.user.id,
-          name: data.user.name,
-          email: data.user.email,
-        },
-        data.token
-      );
-
-      if (data.isNewUser || data.user?.isNewUser) {
-        await AsyncStorage.setItem("isNewUser", "true");
-        Alert.alert(
-          "¡Bienvenido!",
-          `Hola ${data.user?.name ?? ""}. Completa tu perfil.`
-        );
-      } else {
-        await AsyncStorage.removeItem("isNewUser");
-        Alert.alert(
-          "Éxito",
-          `Hola, ${data.user?.name ?? "Facebook User"}`
-        );
-      }
-
-      router.replace("/(tabs)");
-    } catch (e: any) {
-      console.error(e);
-      Alert.alert(
-        "Facebook",
-        e?.response?.data?.message ||
-          e?.message ||
-          "Error al autenticar con Facebook"
-      );
+  const handleToggleMode = () => {
+    if (isLogin) {
+      router.push("/register");
+    } else {
+      setIsLogin(true);
     }
   };
 
-  // ========== UI ==========
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1, backgroundColor: "#fff" }}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-    >
-      <ScrollView
-        contentContainerStyle={{
-          flexGrow: 1,
-          paddingHorizontal: 30,
-          paddingTop: 60,
-          paddingBottom: 40,
-        }}
+    <View style={styles.container}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        <View style={{ marginBottom: 50, alignItems: "center" }}>
-          <TouchableOpacity
-            style={{ alignSelf: "flex-start", marginBottom: 20 }}
-            onPress={() => router.back()}
-          >
-            <Ionicons name="arrow-back" size={24} color="#333" />
-          </TouchableOpacity>
-
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              marginBottom: 20,
-            }}
-          >
-            <Image
-              source={require("../assets/images/icom.png")}
-              style={{ width: 40, height: 40, marginRight: 10 }}
-              resizeMode="contain"
-            />
-            <Text
-              style={{
-                fontSize: 28,
-                fontWeight: "bold",
-                color: "#667eea",
-              }}
-            >
-              OutfitLab
-            </Text>
-          </View>
-
-          <Text
-            style={{
-              fontSize: 24,
-              fontWeight: "bold",
-              color: "#333",
-              marginBottom: 10,
-              textAlign: "center",
-            }}
-          >
-            Bienvenido de nuevo
-          </Text>
-          <Text
-            style={{ fontSize: 16, color: "#666", textAlign: "center" }}
-          >
-            Inicia sesión en tu cuenta
-          </Text>
-        </View>
-
-        <View style={{ marginBottom: 30 }}>
-          {/* Email */}
-          <View style={formStyles.inputContainer}>
-            <Ionicons
-              name="mail-outline"
-              size={20}
-              color="#666"
-              style={formStyles.inputIcon}
-            />
-            <TextInput
-              style={formStyles.input}
-              placeholder="Correo electrónico"
-              placeholderTextColor="#999"
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-            />
-          </View>
-
-          {/* Password */}
-          <View style={formStyles.inputContainer}>
-            <Ionicons
-              name="lock-closed-outline"
-              size={20}
-              color="#666"
-              style={formStyles.inputIcon}
-            />
-            <TextInput
-              style={formStyles.input}
-              placeholder="Contraseña"
-              placeholderTextColor="#999"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry={!showPassword}
-            />
-            <TouchableOpacity
-              onPress={() => setShowPassword(!showPassword)}
-              style={formStyles.eyeIcon}
-            >
-              <Ionicons
-                name={showPassword ? "eye-off-outline" : "eye-outline"}
-                size={20}
-                color="#666"
-              />
-            </TouchableOpacity>
-          </View>
-
-          <TouchableOpacity style={formStyles.forgotPassword}>
-            <Text style={formStyles.forgotPasswordText}>
-              ¿Olvidaste tu contraseña?
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={formStyles.button}
-            onPress={handleLogin}
-          >
-            <Text style={formStyles.buttonText}>Iniciar sesión</Text>
-          </TouchableOpacity>
-
-          {/* Social */}
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              marginBottom: 25,
-            }}
-          >
-            <View style={{ flex: 1, height: 1, backgroundColor: "#ddd" }} />
-            <Text
-              style={{
-                marginHorizontal: 15,
-                color: "#666",
-                fontSize: 14,
-              }}
-            >
-              o continúa con
-            </Text>
-            <View style={{ flex: 1, height: 1, backgroundColor: "#ddd" }} />
-          </View>
-
-          <TouchableOpacity
-            style={[formStyles.socialButton, formStyles.googleButton]}
-            onPress={handleGoogle}
-            disabled={!gRequest}
-          >
-            <Ionicons name="logo-google" size={20} color="#DB4437" />
-            <Text style={formStyles.socialButtonText}>Google</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[formStyles.socialButton, formStyles.facebookButton]}
-            onPress={handleFacebook}
-            disabled={!fbRequest}
-          >
-            <Ionicons name="logo-facebook" size={20} color="#4267B2" />
-            <Text style={formStyles.socialButtonText}>Facebook</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View
-          style={{
-            flexDirection: "row",
-            justifyContent: "center",
-            marginTop: "auto",
-          }}
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
         >
-          <Text style={{ color: "#666", fontSize: 14 }}>
-            ¿No tienes una cuenta?{" "}
-          </Text>
-          <TouchableOpacity onPress={() => router.push("/register")}>
-            <Text
-              style={{
-                color: "#667eea",
-                fontSize: 14,
-                fontWeight: "600",
-              }}
+          <LinearGradient
+            colors={["#4A6FA5", "#8FB8A8", "#A78BFA"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.header}
+          >
+            <View style={styles.circleTop} />
+            <View style={styles.circleBottom} />
+
+            <Animated.View
+              style={[
+                styles.headerContent,
+                {
+                  opacity: headerAnim,
+                  transform: [
+                    {
+                      translateY: headerAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [-20, 0],
+                      }),
+                    },
+                  ],
+                },
+              ]}
             >
-              Regístrate
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+              <View style={styles.logoRow}>
+                <Ionicons name="sparkles" size={28} color="#FFFFFF" />
+                <Text style={styles.logoText}>OutfitLab</Text>
+              </View>
+              <Text style={styles.subtitle}>Tu moodboard de moda personal</Text>
+            </Animated.View>
+          </LinearGradient>
+
+          <Animated.View
+            style={[
+              styles.cardWrapper,
+              {
+                opacity: cardOpacity,
+                transform: [{ translateY: cardAnim }],
+              },
+            ]}
+          >
+            <View style={styles.card}>
+              <View style={styles.toggleContainer}>
+                <Pressable
+                  onPress={() => setIsLogin(true)}
+                  style={styles.toggleButton}
+                >
+                  {isLogin ? (
+                    <LinearGradient
+                      colors={["#4A6FA5", "#8FB8A8"]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                      style={styles.activeToggle}
+                    >
+                      <Text style={styles.activeToggleText}>Iniciar sesión</Text>
+                    </LinearGradient>
+                  ) : (
+                    <Text style={styles.inactiveToggleText}>Iniciar sesión</Text>
+                  )}
+                </Pressable>
+
+                <Pressable
+                  onPress={handleToggleMode}
+                  style={styles.toggleButton}
+                >
+                  {!isLogin ? (
+                    <LinearGradient
+                      colors={["#4A6FA5", "#8FB8A8"]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                      style={styles.activeToggle}
+                    >
+                      <Text style={styles.activeToggleText}>Registrarse</Text>
+                    </LinearGradient>
+                  ) : (
+                    <Text style={styles.inactiveToggleText}>Registrarse</Text>
+                  )}
+                </Pressable>
+              </View>
+
+              <View style={styles.form}>
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.label}>Correo electrónico</Text>
+                  <View style={styles.inputWrapper}>
+                    <Ionicons
+                      name="mail-outline"
+                      size={20}
+                      color="#9CA3AF"
+                      style={styles.inputIcon}
+                    />
+                    <TextInput
+                      value={email}
+                      onChangeText={setEmail}
+                      placeholder="tu@email.com"
+                      placeholderTextColor="#9CA3AF"
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                      style={styles.input}
+                    />
+                  </View>
+                </View>
+
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.label}>Contraseña</Text>
+                  <View style={styles.inputWrapper}>
+                    <Ionicons
+                      name="lock-closed-outline"
+                      size={20}
+                      color="#9CA3AF"
+                      style={styles.inputIcon}
+                    />
+                    <TextInput
+                      value={password}
+                      onChangeText={setPassword}
+                      placeholder="••••••••"
+                      placeholderTextColor="#9CA3AF"
+                      secureTextEntry={!showPassword}
+                      style={styles.input}
+                    />
+                    <Pressable onPress={() => setShowPassword(!showPassword)}>
+                      <Ionicons
+                        name={showPassword ? "eye-off-outline" : "eye-outline"}
+                        size={20}
+                        color="#666"
+                      />
+                    </Pressable>
+                  </View>
+                </View>
+
+                {isLogin && (
+                  <Pressable style={styles.forgotPassword}>
+                    <Text style={styles.forgotPasswordText}>
+                      ¿Olvidaste tu contraseña?
+                    </Text>
+                  </Pressable>
+                )}
+
+                <Pressable onPress={handleLogin} style={styles.submitButtonOuter}>
+                  <LinearGradient
+                    colors={["#4A6FA5", "#8FB8A8"]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.submitButton}
+                  >
+                    <Text style={styles.submitButtonText}>Iniciar sesión</Text>
+                  </LinearGradient>
+                </Pressable>
+              </View>
+
+              <View style={styles.dividerContainer}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerText}>O continuar con</Text>
+                <View style={styles.dividerLine} />
+              </View>
+
+              <View style={styles.socialContainer}>
+                <Pressable
+                  style={styles.socialButton}
+                  onPress={handleGoogle}
+                  disabled={!gRequest}
+                >
+                  <Ionicons name="logo-google" size={20} color="#DB4437" />
+                  <Text style={styles.socialButtonText}>Google</Text>
+                </Pressable>
+              </View>
+
+              <View style={styles.bottomRow}>
+                <Text style={styles.bottomText}>¿No tienes una cuenta? </Text>
+                <Pressable onPress={() => router.push("/register")}>
+                  <Text style={styles.bottomLink}>Regístrate</Text>
+                </Pressable>
+              </View>
+            </View>
+          </Animated.View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#EEF3F7",
+  },
+  scrollContent: {
+    flexGrow: 1,
+  },
+  header: {
+    paddingTop: 70,
+    paddingBottom: 110,
+    paddingHorizontal: 24,
+    position: "relative",
+    overflow: "hidden",
+  },
+  headerContent: {
+    alignItems: "center",
+    zIndex: 2,
+  },
+  logoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 10,
+  },
+  logoText: {
+    fontSize: 38,
+    fontWeight: "600",
+    color: "#FFFFFF",
+  },
+  subtitle: {
+    fontSize: 14,
+    color: "rgba(255,255,255,0.9)",
+    fontWeight: "300",
+  },
+  circleTop: {
+    position: "absolute",
+    top: -55,
+    right: -55,
+    width: 190,
+    height: 190,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.10)",
+  },
+  circleBottom: {
+    position: "absolute",
+    bottom: -50,
+    left: -50,
+    width: 160,
+    height: 160,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.10)",
+  },
+  cardWrapper: {
+    flex: 1,
+    marginTop: -40,
+    paddingHorizontal: 24,
+    paddingBottom: 30,
+  },
+  card: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 28,
+    padding: 24,
+    shadowColor: "#1F2A44",
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.12,
+    shadowRadius: 24,
+    elevation: 8,
+  },
+  toggleContainer: {
+    flexDirection: "row",
+    backgroundColor: "#EEF3F7",
+    borderRadius: 999,
+    padding: 4,
+    marginBottom: 28,
+  },
+  toggleButton: {
+    flex: 1,
+  },
+  activeToggle: {
+    paddingVertical: 12,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  activeToggleText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  inactiveToggleText: {
+    textAlign: "center",
+    paddingVertical: 12,
+    color: "#4B5563",
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  form: {
+    gap: 18,
+  },
+  fieldGroup: {
+    gap: 8,
+  },
+  label: {
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    color: "#6B7280",
+  },
+  inputWrapper: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#EEF3F7",
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    height: 56,
+  },
+  inputIcon: {
+    marginRight: 10,
+  },
+  input: {
+    flex: 1,
+    color: "#1F2937",
+    fontSize: 15,
+  },
+  forgotPassword: {
+    alignSelf: "flex-end",
+  },
+  forgotPasswordText: {
+    fontSize: 14,
+    color: "#4A6FA5",
+    fontWeight: "600",
+  },
+  submitButtonOuter: {
+    marginTop: 4,
+  },
+  submitButton: {
+    paddingVertical: 16,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  submitButtonText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  dividerContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginVertical: 30,
+    gap: 10,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: "#E5E7EB",
+  },
+  dividerText: {
+    color: "#6B7280",
+    fontSize: 14,
+    fontWeight: "300",
+  },
+  socialContainer: {
+    gap: 12,
+  },
+  socialButton: {
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    borderRadius: 18,
+    paddingVertical: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    backgroundColor: "#FFFFFF",
+  },
+  socialButtonText: {
+    fontSize: 15,
+    color: "#424242",
+    fontWeight: "500",
+  },
+  bottomRow: {
+    marginTop: 24,
+    flexDirection: "row",
+    justifyContent: "center",
+  },
+  bottomText: {
+    color: "#666",
+    fontSize: 14,
+  },
+  bottomLink: {
+    color: "#4A6FA5",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+});
