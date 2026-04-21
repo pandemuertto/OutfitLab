@@ -20,7 +20,7 @@ const collectionsRoutes = require('./routes/collections.routes');
 const exploreRoutes = require('./routes/explore.routes');
 const calendarRoutes = require('./routes/calendar.routes');
 
-
+// 1. INICIALIZAR LA APP PRIMERO
 const app = express();
 
 /* ---------- Middlewares globales ---------- */
@@ -48,9 +48,9 @@ app.get('/health-db', async (_req, res) => {
   }
 });
 
-/* ---------- Auth (tu ruta existente) ---------- */
+/* ---------- Rutas ---------- */
+// El primer parámetro '/auth' es el prefijo base.
 app.use('/auth', authRoutes);
-
 
 /* ---------- API de prendas (inventario) ---------- */
 app.use('/api/clothes', clothesRouter);
@@ -82,4 +82,3 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`API en http://localhost:${PORT}`);
 });
-

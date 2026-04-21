@@ -1,8 +1,9 @@
 // frontend/src/api.ts
 import axios from "axios";
 
-// Usar la variable de entorno SIEMPRE
-export const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
+// ¡Borramos process.env para que Expo no use el valor arruinado del caché!
+export const API_URL = "http://192.168.0.11:3000"; 
+
 console.log("🌐 API_URL =", API_URL);
 
 // Cliente Axios configurado con más timeout para debug
