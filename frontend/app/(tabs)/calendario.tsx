@@ -1909,7 +1909,10 @@ const DatePickerModal = ({
   };
 
   const handleConfirm = () => {
-    onSelect(selectedDate.toISOString().split("T")[0]);
+    const year = selectedDate.getFullYear();
+    const month = String(selectedDate.getMonth() + 1).padStart(2, '0');
+    const day = String(selectedDate.getDate()).padStart(2, '0');
+    onSelect(`${year}-${month}-${day}`);
     onClose();
   };
 
@@ -2147,7 +2150,10 @@ export default function CalendarioScreen() {
     if (!dayData) return;
 
     setSelectedDay(dayData.dayNumber);
-    const dateStr = dayData.date.toISOString().split("T")[0];
+    const year = dayData.date.getFullYear();
+    const month = String(dayData.date.getMonth() + 1).padStart(2, '0');
+    const day = String(dayData.date.getDate()).padStart(2, '0');
+    const dateStr = `${year}-${month}-${day}`;
     setSelectedDate(dateStr);
 
     const dayEvent = events.find((e) => {
@@ -2328,6 +2334,20 @@ export default function CalendarioScreen() {
     });
   };
 
+  const hasEventOnDay = (dayData: any) => {
+    if (!dayData || events.length === 0) return false;
+    
+    return events.some((e) => {
+      if (!e.date) return false;
+      const eventDate = new Date(e.date);
+      return (
+        eventDate.getDate() === dayData.dayNumber &&
+        eventDate.getMonth() === currentMonth.getMonth() &&
+        eventDate.getFullYear() === currentMonth.getFullYear()
+      );
+    });
+  };
+
   return (
     <View style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
@@ -2432,16 +2452,21 @@ export default function CalendarioScreen() {
                       disabled={!dayData}
                     >
                       {dayData && (
-                        <Text
-                          style={[
-                            styles.calendarDayText,
-                            dayData.isToday && styles.todayDayText,
-                            selectedDay === dayData.dayNumber &&
-                              styles.selectedDayText,
-                          ]}
-                        >
-                          {dayData.dayNumber}
-                        </Text>
+                        <>
+                          <Text
+                            style={[
+                              styles.calendarDayText,
+                              dayData.isToday && styles.todayDayText,
+                              selectedDay === dayData.dayNumber &&
+                                styles.selectedDayText,
+                            ]}
+                          >
+                            {dayData.dayNumber}
+                          </Text>
+                          {hasEventOnDay(dayData) && (
+                            <View style={styles.eventDot} />
+                          )}
+                        </>
                       )}
                     </TouchableOpacity>
                   ))}
@@ -2459,10 +2484,23 @@ export default function CalendarioScreen() {
                     <Text style={styles.emptyText}>Cargando eventos...</Text>
                   </View>
                 ) : events.length > 0 ? (
-                  events.map((event) => {
-                    const eventDate = event.date ? new Date(event.date) : null;
-                    const dayNumber = eventDate ? eventDate.getDate() : null;
-                    const monthName = eventDate ? monthNames[eventDate.getMonth()].toLowerCase() : '';
+events.map((event) => {
+                    let dayNumber: number | null = null;
+                    let monthName = '';
+                    
+                    // Extraer la fecha 
+                    let dateStr = null;
+                    if (event.date) {
+                      const dateVal = new Date(event.date);
+                      if (!isNaN(dateVal.getTime())) {
+                        const y = dateVal.getFullYear();
+                        const m = String(dateVal.getMonth() + 1).padStart(2, '0');
+                        const d = String(dateVal.getDate()).padStart(2, '0');
+                        dateStr = `${y}-${m}-${d}`;
+                        dayNumber = dateVal.getDate();
+                        monthName = monthNames[dateVal.getMonth()].toLowerCase();
+                      }
+                    }
                     
                     return (
                       <TouchableOpacity
@@ -2475,6 +2513,13 @@ export default function CalendarioScreen() {
                           setFormStartTime(event.startTime || "");
                           setFormEndTime(event.endTime || "");
                           setSelectedClothesEvent((event as any).selectedClothes || []);
+                          if (event.date) {
+                            const d = new Date(event.date);
+                            const year = d.getFullYear();
+                            const month = String(d.getMonth() + 1).padStart(2, '0');
+                            const day = String(d.getDate()).padStart(2, '0');
+                            setSelectedDate(`${year}-${month}-${day}`);
+                          }
                           setModalType("event");
                           setModalVisible(true);
                         }}
@@ -3278,6 +3323,14 @@ const styles = StyleSheet.create({
   selectedDayText: {
     color: "#FFFFFF",
     fontWeight: "700",
+  },
+  eventDot: {
+    position: "absolute",
+    bottom: 6,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: palette.primary,
   },
   eventsContainer: {
     marginBottom: 20,

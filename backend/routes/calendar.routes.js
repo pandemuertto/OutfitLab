@@ -86,7 +86,9 @@ router.post("/", async (req, res) => {
 
     // Siempre enviar date (para viajes puede ser cualquier fecha)
     if (date) {
-      eventData.date = new Date(date);
+      // Crear fecha enhora local para evitar problemas de timezone
+      const [year, month, day] = date.split('-').map(Number);
+      eventData.date = new Date(year, month - 1, day);
     } else {
       // Usar fecha actual por defecto
       eventData.date = new Date();
@@ -146,7 +148,8 @@ router.put("/:id", async (req, res) => {
     };
 
     if (date) {
-      updateData.date = new Date(date);
+      const [year, month, day] = date.split('-').map(Number);
+      updateData.date = new Date(year, month - 1, day);
     }
 
     const event = await prisma.calendarEvent.update({
