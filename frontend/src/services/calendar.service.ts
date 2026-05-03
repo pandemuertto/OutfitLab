@@ -120,6 +120,9 @@ export interface CreateEventData {
 
   // Outfit
   outfitId?: string;
+
+  // Prendas seleccionadas
+  selectedClothes?: string[];
 }
 
 export async function getUserEvents(

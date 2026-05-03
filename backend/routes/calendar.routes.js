@@ -49,24 +49,51 @@ router.get("/user/:userId", async (req, res) => {
 // POST /api/calendar
 router.post("/", async (req, res) => {
   try {
-    const { userId, title, description, date, startTime, endTime, outfitId } = req.body;
+    const { 
+      userId, 
+      title, 
+      description, 
+      date, 
+      startTime, 
+      endTime, 
+      outfitId,
+      isTrip,
+      destination,
+      startDate,
+      endDate,
+      selectedClothes
+    } = req.body;
 
-    if (!userId || !title || !date) {
+    if (!userId || !title) {
       return res.status(400).json({ 
-        error: "Faltan campos requeridos (userId, title, date)" 
+        error: "Faltan campos requeridos (userId, title)" 
       });
     }
 
+    const eventData = {
+      userId,
+      title,
+      description: description || null,
+      startTime: startTime || null,
+      endTime: endTime || null,
+      outfitId: outfitId || null,
+      isTrip: isTrip || false,
+      destination: destination || null,
+      startDate: startDate || null,
+      endDate: endDate || null,
+      selectedClothes: selectedClothes || []
+    };
+
+    // Siempre enviar date (para viajes puede ser cualquier fecha)
+    if (date) {
+      eventData.date = new Date(date);
+    } else {
+      // Usar fecha actual por defecto
+      eventData.date = new Date();
+    }
+
     const event = await prisma.calendarEvent.create({
-      data: {
-        userId,
-        title,
-        description: description || null,
-        date: new Date(date),
-        startTime: startTime || null,
-        endTime: endTime || null,
-        outfitId: outfitId || null
-      },
+      data: eventData,
       include: {
         outfit: {
           include: {
@@ -91,18 +118,40 @@ router.post("/", async (req, res) => {
 router.put("/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const { title, description, date, startTime, endTime, outfitId } = req.body;
+    const { 
+      title, 
+      description, 
+      date, 
+      startTime, 
+      endTime, 
+      outfitId,
+      isTrip,
+      destination,
+      startDate,
+      endDate,
+      selectedClothes
+    } = req.body;
+
+    const updateData = {
+      title,
+      description,
+      startTime,
+      endTime,
+      outfitId,
+      isTrip,
+      destination,
+      startDate,
+      endDate,
+      selectedClothes
+    };
+
+    if (date) {
+      updateData.date = new Date(date);
+    }
 
     const event = await prisma.calendarEvent.update({
       where: { id },
-      data: {
-        title,
-        description,
-        date: date ? new Date(date) : undefined,
-        startTime,
-        endTime,
-        outfitId
-      },
+      data: updateData,
       include: {
         outfit: {
           include: {

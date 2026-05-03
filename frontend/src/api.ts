@@ -2,7 +2,7 @@
 import axios from "axios";
 
 // ¡Borramos process.env para que Expo no use el valor arruinado del caché!
-export const API_URL = "http://192.168.0.11:3000"; 
+export const API_URL = "http://192.168.0.103:3000"; 
 
 console.log("🌐 API_URL =", API_URL);
 
