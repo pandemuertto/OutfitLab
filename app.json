@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "9c45e976-1a8e-475c-bcd5-e050892ba7b4"
+      }
+    },
+    "android": {
+      "package": "com.pandemuerttoo.outfitlab"
+    }
+  }
+}
