@@ -120,7 +120,9 @@
 //   );
 // }
 
-import React, { useEffect, useMemo, useState } from "react";
+// frontend/app/(tabs)/perfil.tsx
+// frontend/app/(tabs)/perfil.tsx
+import React, { useCallback, useState } from "react";
 import {
   View,
   Text,
@@ -129,10 +131,12 @@ import {
   Pressable,
   Image,
   Alert,
+  ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { API_URL, get } from "../../src/api";
 import { useAuth } from "../../src/contexts/auth";
@@ -156,70 +160,169 @@ type OutfitDB = {
   dressCode?: string | null;
   weather?: string | null;
   photoUrl?: string | null;
+  createdAt?: string;
   items: OutfitItemDB[];
 };
+
+type LocalSettings = {
+  userId?: string;
+  name?: string;
+  username?: string;
+  profilePhotoUrl?: string | null;
+  notifications?: boolean;
+  weatherSuggestions?: boolean;
+  publicProfile?: boolean;
+  favoriteStyles?: string[];
+};
+
+function buildImageUrl(url?: string | null) {
+  if (!url) return null;
+  if (url.startsWith("http")) return url;
+  return `${API_URL}${url}`;
+}
+
+function normalizeUsername(value?: string | null) {
+  if (!value) return "usuario";
+
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace("@", "")
+    .replace(/\s+/g, "_")
+    .replace(/[^a-z0-9_]/g, "");
+}
 
 export default function ProfileScreen() {
   const { user, logout } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<"outfits" | "guardados">("outfits");
+  const [activeTab, setActiveTab] = useState<"outfits" | "guardados">(
+    "outfits"
+  );
+
   const [savedOutfits, setSavedOutfits] = useState<OutfitDB[]>([]);
   const [clothesCount, setClothesCount] = useState(0);
+  const [loading, setLoading] = useState(false);
 
-  const displayName = user?.name?.trim() || "Usuario";
+  const [profileName, setProfileName] = useState(user?.name || "Usuario");
+  const [profileUsername, setProfileUsername] = useState(
+    normalizeUsername(user?.name || user?.email)
+  );
+  const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
+
+  const [favoriteStyles, setFavoriteStyles] = useState<string[]>([
+    "Minimalista",
+    "Elegante",
+    "Casual Chic",
+    "Street Style",
+  ]);
+
   const displayEmail = user?.email?.trim() || "usuario@example.com";
 
-  const username = useMemo(() => {
-    if (!displayName) return "@usuario";
-    return "@" + displayName.toLowerCase().replace(/\s+/g, "_");
-  }, [displayName]);
+  const storageKey = user?.id
+    ? `outfitlab_settings_${user.id}`
+    : "outfitlab_settings_guest";
 
-  const favoriteStyles = ["Minimalista", "Elegante", "Casual Chic", "Street Style"];
-
-  const loadSavedOutfits = async () => {
+  const loadLocalSettings = async () => {
     try {
-      if (!user?.id) return;
-      const response = await get(`/api/outfits/user/${user.id}`);
-      setSavedOutfits(response.outfits || []);
-    } catch (err) {
-      console.error("Error cargando outfits guardados:", err);
+      const saved = await AsyncStorage.getItem(storageKey);
+
+      if (!saved) {
+        setProfileName(user?.name || "Usuario");
+        setProfileUsername(normalizeUsername(user?.name || user?.email));
+        setProfilePhotoUrl(buildImageUrl((user as any)?.avatarUrl));
+
+        setFavoriteStyles([
+          "Minimalista",
+          "Elegante",
+          "Casual Chic",
+          "Street Style",
+        ]);
+
+        return;
+      }
+
+      const parsed: LocalSettings = JSON.parse(saved);
+
+      setProfileName(parsed.name?.trim() || user?.name || "Usuario");
+
+      setProfileUsername(
+        normalizeUsername(
+          parsed.username || user?.name || user?.email || "usuario"
+        )
+      );
+
+      setProfilePhotoUrl(
+        parsed.profilePhotoUrl || buildImageUrl((user as any)?.avatarUrl)
+      );
+
+      setFavoriteStyles(
+        Array.isArray(parsed.favoriteStyles) && parsed.favoriteStyles.length > 0
+          ? parsed.favoriteStyles
+          : ["Minimalista", "Elegante", "Casual Chic", "Street Style"]
+      );
+    } catch (error) {
+      console.error("Error leyendo configuración local:", error);
     }
   };
 
-  const loadClothesCount = async () => {
+  const loadProfileData = async () => {
+    if (!user?.id) return;
+
+    setLoading(true);
+
     try {
-      if (!user?.id) return;
-      const response = await fetch(`${API_URL}/api/clothes/user/${user.id}`);
-      const data = await response.json();
-      const clothes = Array.isArray(data) ? data : [];
+      await loadLocalSettings();
+
+      const [clothesResponse, outfitsResponse] = await Promise.all([
+        get(`/api/clothes/user/${user.id}`),
+        get(`/api/outfits/user/${user.id}`),
+      ]);
+
+      const clothes = Array.isArray(clothesResponse)
+        ? clothesResponse
+        : clothesResponse?.prendas || clothesResponse?.items || [];
+
+      const outfits = Array.isArray(outfitsResponse)
+        ? outfitsResponse
+        : outfitsResponse?.outfits || outfitsResponse?.items || [];
+
       setClothesCount(clothes.length);
+      setSavedOutfits(outfits);
     } catch (err) {
-      console.error("Error cargando prendas:", err);
-      setClothesCount(0);
+      console.error("Error cargando perfil:", err);
+
+      Alert.alert(
+        "Error",
+        "No se pudo actualizar tu perfil. Revisa que el backend esté corriendo."
+      );
+    } finally {
+      setLoading(false);
     }
   };
 
-  useEffect(() => {
-    loadSavedOutfits();
-    loadClothesCount();
-  }, [user?.id]);
+  useFocusEffect(
+    useCallback(() => {
+      loadProfileData();
+    }, [user?.id])
+  );
 
-  const getOutfitThumbnail = (o: OutfitDB): string | null => {
-    if (o.photoUrl) {
-      if (o.photoUrl.startsWith("http")) return o.photoUrl;
-      return `${API_URL}${o.photoUrl}`;
-    }
+  const getOutfitThumbnail = (outfit: OutfitDB): string | null => {
+    if (outfit.photoUrl) return buildImageUrl(outfit.photoUrl);
 
-    const first = o.items?.[0]?.prenda;
+    const first = outfit.items?.[0]?.prenda;
+
     if (!first?.imageUrl) return null;
 
-    if (first.imageUrl.startsWith("http")) return first.imageUrl;
-    return `${API_URL}${first.imageUrl}`;
+    return buildImageUrl(first.imageUrl);
   };
 
   const handleLogout = async () => {
     Alert.alert("Cerrar sesión", "¿Seguro que quieres salir de tu cuenta?", [
-      { text: "Cancelar", style: "cancel" },
+      {
+        text: "Cancelar",
+        style: "cancel",
+      },
       {
         text: "Cerrar sesión",
         style: "destructive",
@@ -228,7 +331,7 @@ export default function ProfileScreen() {
             await logout();
             router.replace("/login");
           } catch (error) {
-            console.error("Error during logout:", error);
+            console.error("Error cerrando sesión:", error);
           }
         },
       },
@@ -255,72 +358,137 @@ export default function ProfileScreen() {
 
   const menuItems = [
     {
+      icon: "people-outline" as const,
+      label: "Armario compartido",
+      description: "Comparte y descubre outfits",
+      color: "#4A6FA5",
+      bg: "rgba(74,111,165,0.10)",
+      onPress: () => router.push("/armario-compartido" as any),
+    },
+    {
       icon: "settings-outline" as const,
       label: "Configuración",
-      description: "Preferencias de la app",
-      onPress: () => Alert.alert("Próximamente", "Configuración aún no disponible."),
+      description: "Editar perfil y preferencias",
+      color: "#4A6FA5",
+      bg: "rgba(74,111,165,0.10)",
+      onPress: () => router.push("/configuracion" as any),
     },
     {
       icon: "help-circle-outline" as const,
       label: "Ayuda y soporte",
       description: "Centro de ayuda",
-      onPress: () => Alert.alert("Próximamente", "Centro de ayuda aún no disponible."),
+      color: "#4A6FA5",
+      bg: "rgba(74,111,165,0.10)",
+      onPress: () => router.push("/ayuda" as any),
     },
     {
       icon: "log-out-outline" as const,
       label: "Cerrar sesión",
       description: "Salir de tu cuenta",
+      color: "#EF4444",
+      bg: "rgba(239,68,68,0.10)",
       danger: true,
       onPress: handleLogout,
     },
   ];
 
   const renderOutfitGrid = (data: OutfitDB[]) => {
+    if (loading) {
+      return (
+        <View style={styles.emptyGridCard}>
+          <ActivityIndicator size="small" color="#4A6FA5" />
+          <Text style={styles.emptyGridTitle}>Actualizando perfil...</Text>
+          <Text style={styles.emptyGridText}>
+            Estamos cargando tus prendas y outfits.
+          </Text>
+        </View>
+      );
+    }
+
     if (data.length === 0) {
       return (
         <View style={styles.emptyGridCard}>
-          <Ionicons name="images-outline" size={36} color="#AAB7C4" />
-          <Text style={styles.emptyGridTitle}>Aún no hay outfits</Text>
-          <Text style={styles.emptyGridText}>
-            Genera o guarda tus outfits para verlos aquí.
+          <Ionicons name="images-outline" size={38} color="#AAB7C4" />
+
+          <Text style={styles.emptyGridTitle}>
+            {activeTab === "outfits"
+              ? "Aún no hay outfits"
+              : "Aún no hay guardados"}
           </Text>
+
+          <Text style={styles.emptyGridText}>
+            {activeTab === "outfits"
+              ? "Genera o guarda tus outfits para verlos aquí."
+              : "Guarda tus looks favoritos para tenerlos a la mano."}
+          </Text>
+
+          <Pressable
+            style={styles.emptyActionButton}
+            onPress={() => router.push("/(tabs)/outfits" as any)}
+          >
+            <Text style={styles.emptyActionText}>Ir a outfits</Text>
+          </Pressable>
         </View>
       );
     }
 
     return (
       <View style={styles.grid}>
-        {data.map((outfit) => (
-          <View key={outfit.id} style={styles.outfitCard}>
-            <View style={styles.outfitImageWrapper}>
-              {getOutfitThumbnail(outfit) ? (
-                <Image
-                  source={{ uri: getOutfitThumbnail(outfit)! }}
-                  style={styles.outfitImage}
-                  resizeMode="cover"
+        {data.map((outfit, index) => {
+          const thumbnail = getOutfitThumbnail(outfit);
+
+          return (
+            <Pressable
+              key={outfit.id}
+              style={[
+                styles.outfitCard,
+                index % 3 === 0 && styles.outfitCardTall,
+              ]}
+              onPress={() => router.push("/(tabs)/outfits" as any)}
+            >
+              <View style={styles.outfitImageWrapper}>
+                {thumbnail ? (
+                  <Image
+                    source={{ uri: thumbnail }}
+                    style={styles.outfitImage}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <View style={[styles.outfitImage, styles.outfitPlaceholder]}>
+                    <Ionicons name="image-outline" size={28} color="#94A3B8" />
+                  </View>
+                )}
+
+                <LinearGradient
+                  colors={["transparent", "rgba(15,23,42,0.68)"]}
+                  style={styles.outfitOverlay}
                 />
-              ) : (
-                <View style={[styles.outfitImage, styles.outfitPlaceholder]}>
-                  <Ionicons name="image-outline" size={24} color="#94A3B8" />
+
+                <View style={styles.outfitInfoOverlay}>
+                  <Text style={styles.outfitTitle} numberOfLines={1}>
+                    {outfit.name || "Outfit sugerido"}
+                  </Text>
+
+                  <Text style={styles.outfitMeta}>
+                    {outfit.items?.length || 0} prendas
+                  </Text>
                 </View>
-              )}
-            </View>
-
-            <Text style={styles.outfitTitle} numberOfLines={1}>
-              {outfit.name || "Outfit sugerido"}
-            </Text>
-
-            <Text style={styles.outfitMeta}>
-              {outfit.items?.length || 0} prendas
-            </Text>
-          </View>
-        ))}
+              </View>
+            </Pressable>
+          );
+        })}
       </View>
     );
   };
 
+  const tabData = activeTab === "outfits" ? savedOutfits : savedOutfits;
+
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.scrollContent}
+      showsVerticalScrollIndicator={false}
+    >
       <LinearGradient
         colors={["#4A6FA5", "#8FB8A8", "#A78BFA"]}
         start={{ x: 0, y: 0 }}
@@ -329,20 +497,33 @@ export default function ProfileScreen() {
       >
         <View style={styles.headerContent}>
           <View style={styles.avatar}>
-            <Ionicons name="person" size={46} color="#FFFFFF" />
+            {profilePhotoUrl ? (
+              <Image
+                source={{ uri: profilePhotoUrl }}
+                style={styles.avatarImage}
+                resizeMode="cover"
+              />
+            ) : (
+              <Ionicons name="person" size={48} color="#FFFFFF" />
+            )}
           </View>
 
-          <Text style={styles.name}>{displayName}</Text>
-          <Text style={styles.username}>{username}</Text>
+          <Text style={styles.name}>{profileName}</Text>
+          <Text style={styles.username}>@{profileUsername}</Text>
           <Text style={styles.email}>{displayEmail}</Text>
 
           <View style={styles.statsRow}>
             {stats.map((stat) => (
               <View key={stat.label} style={styles.statItem}>
                 <View style={styles.statTopRow}>
-                  <Ionicons name={stat.icon} size={15} color="rgba(255,255,255,0.85)" />
+                  <Ionicons
+                    name={stat.icon}
+                    size={17}
+                    color="rgba(255,255,255,0.9)"
+                  />
                   <Text style={styles.statValue}>{stat.value}</Text>
                 </View>
+
                 <Text style={styles.statLabel}>{stat.label}</Text>
               </View>
             ))}
@@ -352,7 +533,18 @@ export default function ProfileScreen() {
 
       <View style={styles.content}>
         <View style={styles.stylesCard}>
-          <Text style={styles.stylesCardTitle}>Mis estilos favoritos</Text>
+          <View style={styles.stylesTitleRow}>
+            <Text style={styles.stylesCardTitle}>Mis estilos favoritos</Text>
+
+            <Pressable
+              onPress={() => router.push("/configuracion" as any)}
+              style={styles.editStylesButton}
+            >
+              <Ionicons name="create-outline" size={16} color="#4A6FA5" />
+              <Text style={styles.editStylesText}>Editar</Text>
+            </Pressable>
+          </View>
+
           <View style={styles.stylesTags}>
             {favoriteStyles.map((style) => (
               <View key={style} style={styles.styleTag}>
@@ -363,41 +555,48 @@ export default function ProfileScreen() {
         </View>
 
         <View style={styles.tabsRow}>
-          {[
-            { id: "outfits", label: "Mis Outfits" },
-            { id: "guardados", label: "Guardados" },
-          ].map((tab) => {
-            const isActive = activeTab === tab.id;
-
-            return (
-              <Pressable
-                key={tab.id}
-                onPress={() => setActiveTab(tab.id as "outfits" | "guardados")}
-                style={styles.tabPressable}
+          <Pressable
+            onPress={() => setActiveTab("outfits")}
+            style={styles.tabButton}
+          >
+            {activeTab === "outfits" ? (
+              <LinearGradient
+                colors={["#4A6FA5", "#8FB8A8"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.activeTab}
               >
-                {isActive ? (
-                  <LinearGradient
-                    colors={["#4A6FA5", "#8FB8A8"]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={styles.tabActive}
-                  >
-                    <Text style={styles.tabActiveText}>{tab.label}</Text>
-                  </LinearGradient>
-                ) : (
-                  <View style={styles.tabInactive}>
-                    <Text style={styles.tabInactiveText}>{tab.label}</Text>
-                  </View>
-                )}
-              </Pressable>
-            );
-          })}
+                <Text style={styles.activeTabText}>Mis Outfits</Text>
+              </LinearGradient>
+            ) : (
+              <View style={styles.inactiveTab}>
+                <Text style={styles.inactiveTabText}>Mis Outfits</Text>
+              </View>
+            )}
+          </Pressable>
+
+          <Pressable
+            onPress={() => setActiveTab("guardados")}
+            style={styles.tabButton}
+          >
+            {activeTab === "guardados" ? (
+              <LinearGradient
+                colors={["#4A6FA5", "#8FB8A8"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.activeTab}
+              >
+                <Text style={styles.activeTabText}>Guardados</Text>
+              </LinearGradient>
+            ) : (
+              <View style={styles.inactiveTab}>
+                <Text style={styles.inactiveTabText}>Guardados</Text>
+              </View>
+            )}
+          </Pressable>
         </View>
 
-        <View style={styles.section}>
-          {activeTab === "outfits" && renderOutfitGrid(savedOutfits)}
-          {activeTab === "guardados" && renderOutfitGrid(savedOutfits)}
-        </View>
+        {renderOutfitGrid(tabData)}
 
         <View style={styles.menuCard}>
           {menuItems.map((item, index) => (
@@ -406,23 +605,19 @@ export default function ProfileScreen() {
               onPress={item.onPress}
               style={[
                 styles.menuItem,
-                index !== menuItems.length - 1 && styles.menuItemBorder,
+                index !== menuItems.length - 1 && styles.menuDivider,
               ]}
             >
               <View
                 style={[
-                  styles.menuIconWrapper,
-                  item.danger && styles.menuIconDangerWrapper,
+                  styles.menuIconContainer,
+                  { backgroundColor: item.bg },
                 ]}
               >
-                <Ionicons
-                  name={item.icon}
-                  size={20}
-                  color={item.danger ? "#EF4444" : "#4A6FA5"}
-                />
+                <Ionicons name={item.icon} size={24} color={item.color} />
               </View>
 
-              <View style={styles.menuTextBlock}>
+              <View style={styles.menuTextContainer}>
                 <Text
                   style={[
                     styles.menuLabel,
@@ -431,10 +626,11 @@ export default function ProfileScreen() {
                 >
                   {item.label}
                 </Text>
+
                 <Text style={styles.menuDescription}>{item.description}</Text>
               </View>
 
-              <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
+              <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
             </Pressable>
           ))}
         </View>
@@ -448,245 +644,339 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#EEF3F7",
   },
+
   scrollContent: {
-    paddingBottom: 90,
+    paddingBottom: 120,
   },
+
   header: {
-    paddingTop: 64,
+    paddingTop: 70,
     paddingHorizontal: 24,
-    paddingBottom: 34,
+    paddingBottom: 70,
   },
+
   headerContent: {
     alignItems: "center",
   },
+
   avatar: {
-    width: 96,
-    height: 96,
-    borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.20)",
+    width: 112,
+    height: 112,
+    borderRadius: 56,
     borderWidth: 4,
-    borderColor: "rgba(255,255,255,0.30)",
+    borderColor: "rgba(255,255,255,0.35)",
+    backgroundColor: "rgba(255,255,255,0.16)",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 16,
+    marginBottom: 18,
+    overflow: "hidden",
   },
+
+  avatarImage: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 56,
+  },
+
   name: {
-    fontSize: 28,
-    fontWeight: "600",
+    fontSize: 32,
+    fontWeight: "800",
     color: "#FFFFFF",
-    marginBottom: 4,
   },
+
   username: {
+    fontSize: 16,
+    color: "rgba(255,255,255,0.85)",
+    marginTop: 4,
+  },
+
+  email: {
     fontSize: 14,
     color: "rgba(255,255,255,0.82)",
-    marginBottom: 4,
+    marginTop: 3,
   },
-  email: {
-    fontSize: 13,
-    color: "rgba(255,255,255,0.75)",
-    marginBottom: 22,
-  },
+
   statsRow: {
     flexDirection: "row",
-    justifyContent: "center",
+    marginTop: 30,
     width: "100%",
+    justifyContent: "space-around",
   },
+
   statItem: {
     alignItems: "center",
-    marginHorizontal: 16,
+    flex: 1,
   },
+
   statTopRow: {
     flexDirection: "row",
     alignItems: "center",
     marginBottom: 4,
   },
+
   statValue: {
-    marginLeft: 4,
     color: "#FFFFFF",
-    fontSize: 18,
-    fontWeight: "700",
+    fontSize: 22,
+    fontWeight: "800",
+    marginLeft: 6,
   },
+
   statLabel: {
-    color: "rgba(255,255,255,0.72)",
-    fontSize: 12,
+    color: "rgba(255,255,255,0.82)",
+    fontSize: 13,
   },
+
   content: {
     paddingHorizontal: 24,
-    marginTop: -16,
+    marginTop: -38,
   },
+
   stylesCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 28,
-    padding: 20,
-    marginBottom: 18,
+    padding: 22,
+    marginBottom: 22,
     shadowColor: "#1F2A44",
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.08,
     shadowRadius: 16,
     elevation: 5,
   },
-  stylesCardTitle: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#6B7280",
-    marginBottom: 12,
+
+  stylesTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 16,
   },
+
+  stylesCardTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#4B5563",
+  },
+
+  editStylesButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#EEF3F7",
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+
+  editStylesText: {
+    color: "#4A6FA5",
+    fontSize: 12,
+    fontWeight: "800",
+    marginLeft: 4,
+  },
+
   stylesTags: {
     flexDirection: "row",
     flexWrap: "wrap",
   },
+
   styleTag: {
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    borderRadius: 999,
-    marginRight: 8,
-    marginBottom: 8,
-    backgroundColor: "rgba(74,111,165,0.08)",
     borderWidth: 1,
-    borderColor: "rgba(74,111,165,0.18)",
+    borderColor: "#CBD5E1",
+    backgroundColor: "#F8FAFC",
+    borderRadius: 999,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    marginRight: 10,
+    marginBottom: 10,
   },
+
   styleTagText: {
-    fontSize: 12,
-    fontWeight: "600",
     color: "#4A6FA5",
+    fontSize: 13,
+    fontWeight: "700",
   },
+
   tabsRow: {
     flexDirection: "row",
-    marginBottom: 18,
-  },
-  tabPressable: {
-    flex: 1,
-    marginRight: 8,
-  },
-  tabActive: {
-    paddingVertical: 13,
-    borderRadius: 999,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  tabActiveText: {
-    color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  tabInactive: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    paddingVertical: 13,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  tabInactiveText: {
-    color: "#4B5563",
-    fontSize: 14,
-    fontWeight: "500",
-  },
-  section: {
     marginBottom: 20,
   },
+
+  tabButton: {
+    flex: 1,
+  },
+
+  activeTab: {
+    borderRadius: 999,
+    paddingVertical: 15,
+    alignItems: "center",
+    marginRight: 8,
+  },
+
+  activeTabText: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "800",
+  },
+
+  inactiveTab: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 999,
+    paddingVertical: 15,
+    alignItems: "center",
+    marginLeft: 8,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+
+  inactiveTabText: {
+    color: "#4B5563",
+    fontSize: 15,
+    fontWeight: "800",
+  },
+
+  emptyGridCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 28,
+    paddingVertical: 38,
+    paddingHorizontal: 20,
+    alignItems: "center",
+    marginBottom: 24,
+  },
+
+  emptyGridTitle: {
+    fontSize: 19,
+    fontWeight: "800",
+    color: "#1F2A44",
+    marginTop: 14,
+    textAlign: "center",
+  },
+
+  emptyGridText: {
+    fontSize: 14,
+    color: "#6B7280",
+    textAlign: "center",
+    lineHeight: 20,
+    marginTop: 8,
+  },
+
+  emptyActionButton: {
+    marginTop: 18,
+    borderRadius: 999,
+    backgroundColor: "#EEF3F7",
+    paddingHorizontal: 20,
+    paddingVertical: 11,
+  },
+
+  emptyActionText: {
+    color: "#4A6FA5",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+
   grid: {
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "space-between",
+    marginBottom: 24,
   },
+
   outfitCard: {
     width: "48%",
-    marginBottom: 16,
+    marginBottom: 14,
   },
+
+  outfitCardTall: {
+    width: "100%",
+  },
+
   outfitImageWrapper: {
-    borderRadius: 20,
+    height: 210,
+    borderRadius: 26,
     overflow: "hidden",
     backgroundColor: "#FFFFFF",
-    marginBottom: 8,
-    aspectRatio: 3 / 4,
   },
+
   outfitImage: {
     width: "100%",
     height: "100%",
   },
+
   outfitPlaceholder: {
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#E5E7EB",
   },
-  outfitTitle: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#1F2A44",
+
+  outfitOverlay: {
+    ...StyleSheet.absoluteFillObject,
   },
+
+  outfitInfoOverlay: {
+    position: "absolute",
+    left: 14,
+    right: 14,
+    bottom: 14,
+  },
+
+  outfitTitle: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "800",
+  },
+
   outfitMeta: {
+    color: "rgba(255,255,255,0.88)",
     fontSize: 12,
-    color: "#6B7280",
     marginTop: 2,
   },
-  emptyGridCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 24,
-    padding: 22,
-    alignItems: "center",
-  },
-  emptyGridTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#1F2A44",
-    marginTop: 10,
-    marginBottom: 8,
-    textAlign: "center",
-  },
-  emptyGridText: {
-    fontSize: 13,
-    lineHeight: 20,
-    color: "#6B7280",
-    textAlign: "center",
-  },
+
   menuCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 28,
     overflow: "hidden",
-    marginBottom: 24,
     shadowColor: "#1F2A44",
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.08,
-    shadowRadius: 14,
-    elevation: 4,
+    shadowRadius: 16,
+    elevation: 5,
   },
+
   menuItem: {
     flexDirection: "row",
     alignItems: "center",
-    padding: 18,
+    paddingHorizontal: 18,
+    paddingVertical: 18,
   },
-  menuItemBorder: {
+
+  menuDivider: {
     borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
+    borderBottomColor: "#EEF2F7",
   },
-  menuIconWrapper: {
-    width: 42,
-    height: 42,
+
+  menuIconContainer: {
+    width: 50,
+    height: 50,
     borderRadius: 999,
-    backgroundColor: "#EEF3F7",
     alignItems: "center",
     justifyContent: "center",
     marginRight: 14,
   },
-  menuIconDangerWrapper: {
-    backgroundColor: "#FEF2F2",
-  },
-  menuTextBlock: {
+
+  menuTextContainer: {
     flex: 1,
   },
+
   menuLabel: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: "#1F2937",
-    marginBottom: 2,
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#1F2A44",
   },
+
   menuLabelDanger: {
     color: "#EF4444",
   },
+
   menuDescription: {
-    fontSize: 12,
+    fontSize: 13,
     color: "#6B7280",
+    marginTop: 3,
   },
 });

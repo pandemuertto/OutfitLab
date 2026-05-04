@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<body>
+    <h1>Segmentador de Ropa OutfitLab</h1>
+    <input type="file" id="upload" accept="image/*">
+    <button onclick="enviarIA()">Procesar Outfit</button>
+
+    <script>
+        async function enviarIA() {
+            const fileInput = document.getElementById('upload');
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+
+            const response = await fetch('http://localhost:8000/segmentar', {
+                method: 'POST',
+                body: formData
+            });
+            const data = await response.json();
+            alert(data.status);
+        }
+    </script>
+</body>
+</html>

@@ -38,4 +38,12 @@ frontend/android/
 # TypeScript
 *.tsbuildinfo
 
-OutfitLab_AI/
+# Python / OutfitLab AI
+OutfitLab_AI/venv/
+OutfitLab_AI/__pycache__/
+OutfitLab_AI/outputs/
+OutfitLab_AI/outputs_fast/
+OutfitLab_AI/*.pth
+OutfitLab_AI/*.pt
+OutfitLab_AI/*.onnx
+OutfitLab_AI/.env

@@ -1068,20 +1068,20 @@ export default function RegisterScreen() {
               </Pressable>
             </View>
 
-            <View style={styles.dividerContainer}>
+            {/* <View style={styles.dividerContainer}>
               <View style={styles.dividerLine} />
               <Text style={styles.dividerText}>O registrarte con</Text>
               <View style={styles.dividerLine} />
-            </View>
+            </View> */}
 
-            <Pressable
+            {/* <Pressable
               style={styles.socialButton}
               onPress={handleGoogleRegister}
               disabled={!gRequest || isLoading}
             >
               <Ionicons name="logo-google" size={20} color="#DB4437" />
               <Text style={styles.socialButtonText}>Google</Text>
-            </Pressable>
+            </Pressable> */}
 
             <View style={styles.bottomRow}>
               <Text style={styles.bottomText}>¿Ya tienes una cuenta? </Text>

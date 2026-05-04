@@ -1,235 +1,415 @@
 // backend/src/routes/explore.routes.js
-const express = require("express");
-const router = express.Router();
-
+// backend/routes/explore.routes.js
+const { Router } = require("express");
 const { PrismaClient } = require("@prisma/client");
+
+const router = Router();
 const prisma = new PrismaClient();
 
+function buildFullUrl(req, url) {
+  if (!url) return null;
+  if (url.startsWith("http")) return url;
+
+  const base = `${req.protocol}://${req.get("host")}`;
+  return `${base}${url}`;
+}
+
+function normalizePost(req, post) {
+  return {
+    ...post,
+    imageUrl: buildFullUrl(req, post.imageUrl),
+    likes: post.likes ?? 0,
+    saves: post.saves ?? 0,
+    likesList: post.likesList || [],
+    comments: post.comments || [],
+    user: post.user || {
+      id: post.userId,
+      name: "Usuario",
+    },
+    outfit: post.outfit
+      ? {
+          ...post.outfit,
+          photos: (post.outfit.photos || []).map((photo) => ({
+            ...photo,
+            url: buildFullUrl(req, photo.url),
+          })),
+          items: (post.outfit.items || []).map((item) => ({
+            ...item,
+            prenda: item.prenda
+              ? {
+                  ...item.prenda,
+                  imageUrl: buildFullUrl(req, item.prenda.imageUrl),
+                }
+              : item.prenda,
+          })),
+        }
+      : null,
+  };
+}
+
 /**
- * GET /api/explore/outfits?style=Tendencias|Casual|Formal|Deportivo
- * Lista las publicaciones de Explorar
+ * GET /api/explore/outfits
+ * Lista publicaciones de explorar.
  */
 router.get("/outfits", async (req, res) => {
   try {
     const { style } = req.query;
 
-    const where =
-      style && style !== "Tendencias"
-        ? { style: String(style) }
-        : {};
+    const where = {};
+
+    if (style && String(style).trim() !== "") {
+      where.style = {
+        contains: String(style),
+        mode: "insensitive",
+      };
+    }
 
     const posts = await prisma.explorePost.findMany({
       where,
-      orderBy: { createdAt: "desc" },
+      orderBy: {
+        createdAt: "desc",
+      },
       include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+        likesList: true,
+        comments: {
+          orderBy: {
+            createdAt: "asc",
+          },
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+              },
+            },
+          },
+        },
         outfit: {
           include: {
-            user: true,
+            photos: true,
             items: {
               include: {
                 prenda: true,
               },
             },
-            photos: true,
           },
         },
+      },
+    });
+
+    return res.json({
+      success: true,
+      posts: posts.map((post) => normalizePost(req, post)),
+    });
+  } catch (error) {
+    console.error("GET explore outfits error:", error);
+
+    return res.status(500).json({
+      error: "No se pudieron obtener las publicaciones",
+      detail: error.message,
+    });
+  }
+});
+
+/**
+ * POST /api/explore/outfits/:id/like
+ * Da like o quita like.
+ */
+router.post("/outfits/:id/like", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { userId } = req.body || {};
+
+    if (!userId) {
+      return res.status(400).json({
+        error: "Falta userId",
+      });
+    }
+
+    const post = await prisma.explorePost.findUnique({
+      where: {
+        id,
+      },
+    });
+
+    if (!post) {
+      return res.status(404).json({
+        error: "Publicación no encontrada",
+      });
+    }
+
+    const existingLike = await prisma.exploreLike.findFirst({
+      where: {
+        postId: id,
+        userId,
+      },
+    });
+
+    let liked = false;
+
+    if (existingLike) {
+      await prisma.exploreLike.delete({
+        where: {
+          id: existingLike.id,
+        },
+      });
+
+      await prisma.explorePost.update({
+        where: {
+          id,
+        },
+        data: {
+          likes: {
+            decrement: post.likes > 0 ? 1 : 0,
+          },
+        },
+      });
+
+      liked = false;
+    } else {
+      await prisma.exploreLike.create({
+        data: {
+          postId: id,
+          userId,
+        },
+      });
+
+      await prisma.explorePost.update({
+        where: {
+          id,
+        },
+        data: {
+          likes: {
+            increment: 1,
+          },
+        },
+      });
+
+      liked = true;
+    }
+
+    const updatedPost = await prisma.explorePost.findUnique({
+      where: {
+        id,
+      },
+      include: {
         user: true,
-        likesList: true,                    // 👈 para saber quién dio like
+        likesList: true,
         comments: {
-          include: { user: true },          // 👈 comentarios con info de usuario
+          include: {
+            user: true,
+          },
+          orderBy: {
+            createdAt: "asc",
+          },
+        },
+        outfit: {
+          include: {
+            photos: true,
+            items: {
+              include: {
+                prenda: true,
+              },
+            },
+          },
         },
       },
     });
 
-    return res.json({ ok: true, posts });
-  } catch (err) {
-    console.error("Error listando explore:", err);
-    return res
-      .status(500)
-      .json({ ok: false, message: "Error listando explore" });
+    return res.json({
+      success: true,
+      liked,
+      post: normalizePost(req, updatedPost),
+    });
+  } catch (error) {
+    console.error("POST like error:", error);
+
+    return res.status(500).json({
+      error: "No se pudo actualizar el like",
+      detail: error.message,
+    });
   }
 });
 
 /**
- * POST /api/explore/:postId/like
- * Dar like a una publicación
- * body: { userId }
+ * POST /api/explore/outfits/:id/comments
+ * Crea un comentario.
  */
-router.post("/:postId/like", async (req, res) => {
+router.post("/outfits/:id/comments", async (req, res) => {
   try {
-    const { postId } = req.params;
-    const { userId } = req.body;
+    const { id } = req.params;
+    const { userId, content } = req.body || {};
 
     if (!userId) {
-      return res.status(400).json({ ok: false, message: "Falta userId" });
+      return res.status(400).json({
+        error: "Falta userId",
+      });
     }
 
-    // ¿Ya existe el like?
-    const existing = await prisma.exploreLike.findUnique({
+    if (!content || !String(content).trim()) {
+      return res.status(400).json({
+        error: "El comentario no puede estar vacío",
+      });
+    }
+
+    const post = await prisma.explorePost.findUnique({
       where: {
-        userId_postId: { userId, postId },
+        id,
       },
     });
 
-    if (existing) {
-      return res.json({ ok: true, alreadyLiked: true });
-    }
-
-    await prisma.exploreLike.create({
-      data: { userId, postId },
-    });
-
-    await prisma.explorePost.update({
-      where: { id: postId },
-      data: { likes: { increment: 1 } },
-    });
-
-    return res.json({ ok: true });
-  } catch (err) {
-    console.error("Error dando like:", err);
-    return res.status(500).json({ ok: false, message: "Error dando like" });
-  }
-});
-
-/**
- * DELETE /api/explore/:postId/like
- * Quitar like
- * body: { userId }
- */
-router.delete("/:postId/like", async (req, res) => {
-  try {
-    const { postId } = req.params;
-    const { userId } = req.body;
-
-    if (!userId) {
-      return res.status(400).json({ ok: false, message: "Falta userId" });
-    }
-
-    await prisma.exploreLike.delete({
-      where: {
-        userId_postId: { userId, postId },
-      },
-    });
-
-    await prisma.explorePost.update({
-      where: { id: postId },
-      data: { likes: { decrement: 1 } },
-    });
-
-    return res.json({ ok: true });
-  } catch (err) {
-    console.error("Error quitando like:", err);
-    return res.status(500).json({ ok: false, message: "Error quitando like" });
-  }
-});
-
-/**
- * POST /api/explore/:postId/comment
- * Crear comentario
- * body: { userId, content }
- */
-router.post("/:postId/comment", async (req, res) => {
-  try {
-    const { postId } = req.params;
-    const { userId, content } = req.body;
-
-    if (!userId || !content?.trim()) {
-      return res
-        .status(400)
-        .json({ ok: false, message: "Faltan datos para comentar" });
+    if (!post) {
+      return res.status(404).json({
+        error: "Publicación no encontrada",
+      });
     }
 
     const comment = await prisma.exploreComment.create({
       data: {
-        postId,
+        postId: id,
         userId,
-        content: content.trim(),
+        content: String(content).trim(),
       },
       include: {
-        user: true,
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
       },
     });
 
-    return res.json({ ok: true, comment });
-  } catch (err) {
-    console.error("Error creando comentario:", err);
-    return res
-      .status(500)
-      .json({ ok: false, message: "Error creando comentario" });
+    return res.status(201).json({
+      success: true,
+      message: "Comentario agregado correctamente",
+      comment,
+    });
+  } catch (error) {
+    console.error("POST comment error:", error);
+
+    return res.status(500).json({
+      error: "No se pudo agregar el comentario",
+      detail: error.message,
+    });
   }
 });
 
 /**
- * PUT /api/explore/:postId
- * Editar publicación (solo dueño)
- * body: { userId, title?, style? }
+ * PUT /api/explore/outfits/:id
+ * Edita una publicación.
  */
-router.put("/:postId", async (req, res) => {
+router.put("/outfits/:id", async (req, res) => {
   try {
-    const { postId } = req.params;
-    const { userId, title, style } = req.body;
+    const { id } = req.params;
+    const { title, style } = req.body || {};
 
     const post = await prisma.explorePost.findUnique({
-      where: { id: postId },
+      where: {
+        id,
+      },
     });
 
     if (!post) {
-      return res.status(404).json({ ok: false, message: "No encontrado" });
-    }
-
-    if (post.userId !== userId) {
-      return res.status(403).json({ ok: false, message: "No autorizado" });
+      return res.status(404).json({
+        error: "Publicación no encontrada",
+      });
     }
 
     const updated = await prisma.explorePost.update({
-      where: { id: postId },
+      where: {
+        id,
+      },
       data: {
-        title: title ?? post.title,
-        style: style ?? post.style,
+        title: title ?? undefined,
+        style: style ?? undefined,
+      },
+      include: {
+        user: true,
+        likesList: true,
+        comments: {
+          include: {
+            user: true,
+          },
+          orderBy: {
+            createdAt: "asc",
+          },
+        },
+        outfit: {
+          include: {
+            photos: true,
+            items: {
+              include: {
+                prenda: true,
+              },
+            },
+          },
+        },
       },
     });
 
-    return res.json({ ok: true, post: updated });
-  } catch (err) {
-    console.error("Error editando publicación:", err);
-    return res
-      .status(500)
-      .json({ ok: false, message: "Error editando publicación" });
+    return res.json({
+      success: true,
+      message: "Publicación actualizada correctamente",
+      post: normalizePost(req, updated),
+    });
+  } catch (error) {
+    console.error("PUT explore post error:", error);
+
+    return res.status(500).json({
+      error: "No se pudo actualizar la publicación",
+      detail: error.message,
+    });
   }
 });
 
 /**
- * DELETE /api/explore/:postId
- * Eliminar publicación (solo dueño)
- * body: { userId }
+ * DELETE /api/explore/outfits/:id
+ * Elimina una publicación.
  */
-router.delete("/:postId", async (req, res) => {
+router.delete("/outfits/:id", async (req, res) => {
   try {
-    const { postId } = req.params;
-    const { userId } = req.body;
+    const { id } = req.params;
 
     const post = await prisma.explorePost.findUnique({
-      where: { id: postId },
+      where: {
+        id,
+      },
     });
 
     if (!post) {
-      return res.status(404).json({ ok: false, message: "No encontrado" });
-    }
-
-    if (post.userId !== userId) {
-      return res.status(403).json({ ok: false, message: "No autorizado" });
+      return res.status(404).json({
+        error: "Publicación no encontrada",
+      });
     }
 
     await prisma.explorePost.delete({
-      where: { id: postId },
+      where: {
+        id,
+      },
     });
 
-    return res.json({ ok: true });
-  } catch (err) {
-    console.error("Error eliminando publicación:", err);
-    return res
-      .status(500)
-      .json({ ok: false, message: "Error eliminando publicación" });
+    return res.json({
+      success: true,
+      message: "Publicación eliminada correctamente",
+      deletedId: id,
+    });
+  } catch (error) {
+    console.error("DELETE explore post error:", error);
+
+    return res.status(500).json({
+      error: "No se pudo eliminar la publicación",
+      detail: error.message,
+    });
   }
 });
 

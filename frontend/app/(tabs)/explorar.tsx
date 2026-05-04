@@ -865,6 +865,7 @@
 //   },
 // });
 
+// frontend/app/(tabs)/explorar.tsx
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   View,
@@ -876,13 +877,13 @@ import {
   Image,
   ActivityIndicator,
   Modal,
-  FlatList,
   Alert,
   RefreshControl,
+  Share,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect } from "expo-router";
 
 import { get, post, put, del, API_URL } from "../../src/api";
 import { useAuth } from "../../src/contexts/auth";
@@ -915,16 +916,16 @@ type ExplorePost = {
     id: string;
     name: string | null;
   };
-  outfit: {
+  outfit?: {
     id: string;
-    items: {
+    items?: {
       prenda: {
         id: number;
         type: string | null;
         color: string | null;
       };
     }[];
-    photos: {
+    photos?: {
       id: string;
       url: string;
     }[];
@@ -1048,11 +1049,7 @@ export default function ExplorarScreen() {
       const author = p.user?.name?.toLowerCase() || "";
       const style = p.style?.toLowerCase() || "";
 
-      return (
-        title.includes(term) ||
-        author.includes(term) ||
-        style.includes(term)
-      );
+      return title.includes(term) || author.includes(term) || style.includes(term);
     });
   }, [posts, search]);
 
@@ -1086,10 +1083,123 @@ export default function ExplorarScreen() {
     return String(postItem.userId) === String(user.id);
   };
 
+  const handleSharePost = async (postItem: ExplorePost) => {
+    try {
+      const author = postItem.user?.name || "un usuario";
+      const style = postItem.style ? ` estilo ${postItem.style}` : "";
+      const title = postItem.title || "Outfit sugerido";
+
+      const message =
+        `Mira este outfit en Closi ✨\n\n` +
+        `"${title}" de ${author}${style}.\n\n` +
+        `Closi te ayuda a organizar tu armario y crear outfits con tu estilo.`;
+
+      await Share.share({
+        title: "Compartir outfit",
+        message,
+      });
+    } catch (error) {
+      console.error("Error compartiendo publicación:", error);
+      Alert.alert("Error", "No se pudo compartir la publicación.");
+    }
+  };
+
+  const handleLike = async (postItem: ExplorePost) => {
+    if (!user?.id) {
+      Alert.alert("Inicia sesión", "Debes iniciar sesión para dar like.");
+      return;
+    }
+
+    const alreadyLiked = hasLiked(postItem);
+
+    setPosts((prev) =>
+      prev.map((p) => {
+        if (p.id !== postItem.id) return p;
+
+        return {
+          ...p,
+          likes: alreadyLiked ? Math.max(0, p.likes - 1) : p.likes + 1,
+          likesList: alreadyLiked
+            ? p.likesList.filter((l) => String(l.userId) !== String(user.id))
+            : [...p.likesList, { userId: String(user.id) }],
+        };
+      })
+    );
+
+    try {
+      await post(`/api/explore/outfits/${postItem.id}/like`, {
+        userId: user.id,
+      });
+    } catch (err) {
+      console.error("Error dando like:", err);
+      await loadPosts(activeFilter);
+    }
+  };
+
   const openComments = (postItem: ExplorePost) => {
     setSelectedPost(postItem);
     setCommentText("");
     setCommentModalVisible(true);
+  };
+
+  const handleCreateComment = async () => {
+    if (!user?.id) {
+      Alert.alert("Inicia sesión", "Debes iniciar sesión para comentar.");
+      return;
+    }
+
+    if (!selectedPost?.id) return;
+
+    if (!commentText.trim()) {
+      Alert.alert("Comentario vacío", "Escribe un comentario.");
+      return;
+    }
+
+    try {
+      const response = await post(
+        `/api/explore/outfits/${selectedPost.id}/comments`,
+        {
+          userId: user.id,
+          content: commentText.trim(),
+        }
+      );
+
+      const newComment = response?.comment || {
+        id: String(Date.now()),
+        content: commentText.trim(),
+        createdAt: new Date().toISOString(),
+        userId: String(user.id),
+        user: {
+          id: String(user.id),
+          name: user.name || "Usuario",
+        },
+      };
+
+      setPosts((prev) =>
+        prev.map((p) =>
+          p.id === selectedPost.id
+            ? {
+                ...p,
+                comments: [...(p.comments || []), newComment],
+              }
+            : p
+        )
+      );
+
+      setSelectedPost((prev) =>
+        prev
+          ? {
+              ...prev,
+              comments: [...(prev.comments || []), newComment],
+            }
+          : prev
+      );
+
+      setCommentText("");
+    } catch (err) {
+      console.error("Error comentando:", err);
+      Alert.alert("Error", getErrorMessage(err));
+    }
   };
 
   const openEditModal = (postItem: ExplorePost) => {
@@ -1111,183 +1221,49 @@ export default function ExplorarScreen() {
     setEditModalVisible(true);
   };
 
-  const handleToggleLike = async (postItem: ExplorePost) => {
-    if (!user?.id) {
-      Alert.alert("Inicia sesión", "Necesitas iniciar sesión para dar like.");
-      return;
-    }
-
-    const liked = hasLiked(postItem);
-
-    try {
-      if (liked) {
-        await del(`/api/explore/${postItem.id}/like`, {
-          userId: user.id,
-        });
-
-        setPosts((prev) =>
-          prev.map((p) =>
-            p.id === postItem.id
-              ? {
-                  ...p,
-                  likes: Math.max(0, p.likes - 1),
-                  likesList: p.likesList.filter(
-                    (l) => String(l.userId) !== String(user.id)
-                  ),
-                }
-              : p
-          )
-        );
-
-        setSelectedPost((prev) =>
-          prev?.id === postItem.id
-            ? {
-                ...prev,
-                likes: Math.max(0, prev.likes - 1),
-                likesList: prev.likesList.filter(
-                  (l) => String(l.userId) !== String(user.id)
-                ),
-              }
-            : prev
-        );
-      } else {
-        await post(`/api/explore/${postItem.id}/like`, {
-          userId: user.id,
-        });
-
-        setPosts((prev) =>
-          prev.map((p) =>
-            p.id === postItem.id
-              ? {
-                  ...p,
-                  likes: p.likes + 1,
-                  likesList: [...p.likesList, { userId: String(user.id) }],
-                }
-              : p
-          )
-        );
-
-        setSelectedPost((prev) =>
-          prev?.id === postItem.id
-            ? {
-                ...prev,
-                likes: prev.likes + 1,
-                likesList: [...prev.likesList, { userId: String(user.id) }],
-              }
-            : prev
-        );
-      }
-    } catch (err) {
-      console.error("Error toggling like:", err);
-      Alert.alert("Error", "No se pudo actualizar el like.");
-    }
-  };
-
-  const handleAddComment = async () => {
-    if (!selectedPost || !user?.id) {
-      Alert.alert("Error", "Debes iniciar sesión.");
-      return;
-    }
-
-    if (!commentText.trim()) {
-      Alert.alert("Comentario vacío", "Escribe algo antes de comentar.");
-      return;
-    }
-
-    try {
-      const data = await post(`/api/explore/${selectedPost.id}/comment`, {
-        userId: user.id,
-        content: commentText.trim(),
-      });
-
-      const newComment = data?.comment;
-
-      if (newComment) {
-        setPosts((prev) =>
-          prev.map((p) =>
-            p.id === selectedPost.id
-              ? {
-                  ...p,
-                  comments: [...p.comments, newComment],
-                }
-              : p
-          )
-        );
-
-        setSelectedPost((prev) =>
-          prev
-            ? {
-                ...prev,
-                comments: [...prev.comments, newComment],
-              }
-            : prev
-        );
-      }
-
-      setCommentText("");
-    } catch (err) {
-      console.error("Error agregando comentario:", err);
-      Alert.alert("Error", "No se pudo agregar el comentario.");
-    }
-  };
-
-  const handleEditPost = async () => {
-    if (!selectedPost) return;
-
-    if (!user?.id) {
-      Alert.alert("Error", "Debes iniciar sesión.");
-      return;
-    }
-
-    if (!isOwner(selectedPost)) {
-      Alert.alert(
-        "No autorizado",
-        "Solo puedes editar tus propias publicaciones."
-      );
-      return;
-    }
+  const handleSaveEdit = async () => {
+    if (!selectedPost?.id) return;
 
     if (!editTitle.trim()) {
-      Alert.alert("Título vacío", "Escribe un título válido.");
+      Alert.alert("Título vacío", "Escribe un título para tu publicación.");
       return;
     }
 
-    try {
-      setSavingEdit(true);
+    setSavingEdit(true);
 
-      const data = await put(`/api/explore/${selectedPost.id}`, {
-        userId: user.id,
+    try {
+      const response = await put(`/api/explore/outfits/${selectedPost.id}`, {
         title: editTitle.trim(),
       });
 
-      const updatedPost = data?.post
-        ? normalizePost(data.post)
-        : {
-            ...selectedPost,
-            title: editTitle.trim(),
-          };
+      const updatedPost = normalizePost(response?.post || response);
 
       setPosts((prev) =>
-        prev.map((p) => (p.id === selectedPost.id ? updatedPost : p))
+        prev.map((p) =>
+          p.id === selectedPost.id
+            ? {
+                ...p,
+                ...updatedPost,
+                title: updatedPost.title || editTitle.trim(),
+              }
+            : p
+        )
       );
 
-      setSelectedPost(updatedPost);
       setEditModalVisible(false);
-    } catch (err: any) {
-      console.error("Error editando publicación:", err);
+      setSelectedPost(null);
+      setEditTitle("");
 
+      Alert.alert("Listo", "La publicación se actualizó correctamente.");
+    } catch (err) {
+      console.error("Error editando post:", err);
       Alert.alert("Error", getErrorMessage(err));
     } finally {
       setSavingEdit(false);
     }
   };
 
-  const handleDeletePost = async (postItem: ExplorePost) => {
-    if (!user?.id) {
-      Alert.alert("Error", "Debes iniciar sesión.");
-      return;
-    }
-
+  const handleDeletePost = (postItem: ExplorePost) => {
     if (!isOwner(postItem)) {
       Alert.alert(
         "No autorizado",
@@ -1300,31 +1276,21 @@ export default function ExplorarScreen() {
       "Eliminar publicación",
       "¿Seguro que quieres eliminar esta publicación?",
       [
-        {
-          text: "Cancelar",
-          style: "cancel",
-        },
+        { text: "Cancelar", style: "cancel" },
         {
           text: "Eliminar",
           style: "destructive",
           onPress: async () => {
-            try {
-              setDeletingPostId(postItem.id);
+            setDeletingPostId(postItem.id);
 
-              await del(`/api/explore/${postItem.id}`, {
-                userId: user.id,
-              });
+            try {
+              await del(`/api/explore/outfits/${postItem.id}`);
 
               setPosts((prev) => prev.filter((p) => p.id !== postItem.id));
 
-              if (selectedPost?.id === postItem.id) {
-                setSelectedPost(null);
-                setCommentModalVisible(false);
-                setEditModalVisible(false);
-              }
-            } catch (err: any) {
-              console.error("Error eliminando publicación:", err);
-
+              Alert.alert("Eliminada", "La publicación se eliminó correctamente.");
+            } catch (err) {
+              console.error("Error eliminando post:", err);
               Alert.alert("Error", getErrorMessage(err));
             } finally {
               setDeletingPostId(null);
@@ -1335,114 +1301,125 @@ export default function ExplorarScreen() {
     );
   };
 
-  const renderPostCard = (postItem: ExplorePost) => {
-    const imageUri = getMainImage(postItem);
+  const showOwnerOptions = (postItem: ExplorePost) => {
+    Alert.alert("Opciones de publicación", "¿Qué quieres hacer?", [
+      {
+        text: "Editar",
+        onPress: () => openEditModal(postItem),
+      },
+      {
+        text: "Eliminar",
+        style: "destructive",
+        onPress: () => handleDeletePost(postItem),
+      },
+      {
+        text: "Cancelar",
+        style: "cancel",
+      },
+    ]);
+  };
+
+  const renderPost = (postItem: ExplorePost) => {
     const liked = hasLiked(postItem);
     const owner = isOwner(postItem);
-    const isDeleting = deletingPostId === postItem.id;
+    const imageUrl = getMainImage(postItem);
 
     return (
       <View key={postItem.id} style={styles.postCard}>
-        <Image source={{ uri: imageUri }} style={styles.postImage} />
+        <Image source={{ uri: imageUrl }} style={styles.postImage} />
 
         <LinearGradient
-          colors={["transparent", "rgba(0,0,0,0.72)"]}
+          colors={["transparent", "rgba(0,0,0,0.82)"]}
           start={{ x: 0, y: 0.2 }}
           end={{ x: 0, y: 1 }}
           style={styles.postOverlay}
         />
 
-        <View style={styles.postHeaderActions}>
-          {owner && (
+        <View style={styles.postTopActions}>
+          {owner ? (
             <>
               <Pressable
-                style={styles.topIconButton}
+                style={styles.floatingButton}
                 onPress={() => openEditModal(postItem)}
-                disabled={isDeleting}
               >
-                <Ionicons name="create-outline" size={18} color="#111827" />
+                <Ionicons name="create-outline" size={22} color="#1F2A44" />
               </Pressable>
 
               <Pressable
-                style={styles.topIconButton}
+                style={styles.floatingButtonDanger}
                 onPress={() => handleDeletePost(postItem)}
-                disabled={isDeleting}
+                disabled={deletingPostId === postItem.id}
               >
-                {isDeleting ? (
-                  <ActivityIndicator size="small" color="#dc2626" />
+                {deletingPostId === postItem.id ? (
+                  <ActivityIndicator color="#EF4444" size="small" />
                 ) : (
-                  <Ionicons name="trash-outline" size={18} color="#dc2626" />
+                  <Ionicons name="trash-outline" size={22} color="#EF4444" />
                 )}
               </Pressable>
             </>
-          )}
+          ) : null}
         </View>
 
-        <View style={styles.postFooter}>
-          <View style={styles.userRow}>
-            <View style={styles.avatarCircle}>
-              <Text style={styles.avatarText}>
-                {(postItem.user?.name || "U").charAt(0).toUpperCase()}
-              </Text>
-            </View>
-
-            <View>
-              <Text style={styles.userName}>
-                {postItem.user?.name || "Usuario"}
-              </Text>
-
-              {postItem.style ? (
-                <Text style={styles.postStyle}>{postItem.style}</Text>
-              ) : null}
-            </View>
+        <View style={styles.postAuthorRow}>
+          <View style={styles.avatarSmall}>
+            <Text style={styles.avatarLetter}>
+              {(postItem.user?.name || "U").charAt(0).toUpperCase()}
+            </Text>
           </View>
 
-          <Text style={styles.postTitle}>{postItem.title}</Text>
+          <View>
+            <Text style={styles.authorName}>
+              {postItem.user?.name || "Usuario"}
+            </Text>
+
+            <Text style={styles.postStyle}>{postItem.style || "outfit"}</Text>
+          </View>
+        </View>
+
+        <View style={styles.postBottom}>
+          <Text style={styles.postTitle}>{postItem.title || "Outfit sugerido"}</Text>
 
           <View style={styles.actionsRow}>
-            <Pressable
-              style={styles.iconRow}
-              onPress={() => handleToggleLike(postItem)}
-            >
+            <Pressable style={styles.actionButton} onPress={() => handleLike(postItem)}>
               <Ionicons
                 name={liked ? "heart" : "heart-outline"}
-                size={20}
-                color={liked ? "#EC4899" : "#FFFFFF"}
+                size={29}
+                color={liked ? "#FF5A8A" : "#FFFFFF"}
               />
-
-              <Text
-                style={[
-                  styles.iconText,
-                  liked && {
-                    color: "#EC4899",
-                    fontWeight: "700",
-                  },
-                ]}
-              >
-                {postItem.likes}
-              </Text>
+              <Text style={styles.actionText}>{postItem.likes || 0}</Text>
             </Pressable>
 
             <Pressable
-              style={styles.iconRow}
+              style={styles.actionButton}
               onPress={() => openComments(postItem)}
             >
               <Ionicons
                 name="chatbubble-ellipses-outline"
-                size={20}
+                size={28}
                 color="#FFFFFF"
               />
-
-              <Text style={styles.iconText}>{postItem.comments.length}</Text>
+              <Text style={styles.actionText}>
+                {postItem.comments?.length || 0}
+              </Text>
             </Pressable>
 
-            <View style={[styles.iconRow, { marginLeft: "auto" }]}>
-              <Ionicons
-                name="share-social-outline"
-                size={20}
-                color="#FFFFFF"
-              />
-            </View>
+            <View style={{ flex: 1 }} />
+
+            <Pressable
+              style={styles.shareButton}
+              onPress={() => handleSharePost(postItem)}
+            >
+              <Ionicons name="share-social-outline" size={27} color="#FFFFFF" />
+            </Pressable>
+
+            {owner ? (
+              <Pressable
+                style={styles.moreButton}
+                onPress={() => showOwnerOptions(postItem)}
+              >
+                <Ionicons name="ellipsis-horizontal" size={24} color="#FFFFFF" />
+              </Pressable>
+            ) : null}
           </View>
         </View>
       </View>
@@ -1454,68 +1431,80 @@ export default function ExplorarScreen() {
       <ScrollView
         style={styles.container}
         contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
         }
       >
         <LinearGradient
-          colors={["#A78BFA", "#CDB4DB"]}
+          colors={["#4A6FA5", "#8FB8A8", "#A78BFA"]}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={styles.header}
         >
-          <Text style={styles.headerTitle}>Explorar</Text>
-          <Text style={styles.headerSubtitle}>
-            Descubre inspiración de moda
-          </Text>
-        </LinearGradient>
+          <View style={styles.headerTop}>
+            <View>
+              <Text style={styles.headerTitle}>Explorar</Text>
+              <Text style={styles.headerSubtitle}>
+                Inspírate con looks de la comunidad
+              </Text>
+            </View>
 
-        <View style={styles.content}>
+            <View style={styles.headerIcon}>
+              <Ionicons name="compass-outline" size={26} color="#FFFFFF" />
+            </View>
+          </View>
+
           <View style={styles.searchCard}>
-            <Ionicons
-              name="search-outline"
-              size={20}
-              color="#9CA3AF"
-              style={{ marginRight: 10 }}
-            />
+            <Ionicons name="search-outline" size={20} color="#9CA3AF" />
 
             <TextInput
               value={search}
               onChangeText={setSearch}
-              placeholder="Buscar estilos, usuarios, tendencias..."
+              placeholder="Buscar outfits, estilos o usuarios..."
               placeholderTextColor="#9CA3AF"
               style={styles.searchInput}
             />
-          </View>
 
+            {search.trim() ? (
+              <Pressable onPress={() => setSearch("")}>
+                <Ionicons name="close" size={20} color="#9CA3AF" />
+              </Pressable>
+            ) : null}
+          </View>
+        </LinearGradient>
+
+        <View style={styles.content}>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.tabsRow}
+            contentContainerStyle={styles.filtersRow}
           >
-            {FILTERS.map((tab) => {
-              const isActive = activeFilter === tab.id;
+            {FILTERS.map((filter) => {
+              const active = activeFilter === filter.id;
 
               return (
                 <Pressable
-                  key={tab.id}
-                  onPress={() => setActiveFilter(tab.id)}
-                  style={styles.tabPressable}
+                  key={filter.id}
+                  onPress={() => setActiveFilter(filter.id)}
+                  style={styles.filterPressable}
                 >
-                  {isActive ? (
+                  {active ? (
                     <LinearGradient
-                      colors={["#A78BFA", "#CDB4DB"]}
+                      colors={["#4A6FA5", "#8FB8A8"]}
                       start={{ x: 0, y: 0 }}
                       end={{ x: 1, y: 0 }}
-                      style={styles.tabActive}
+                      style={styles.filterActive}
                     >
-                      <Ionicons name={tab.icon} size={16} color="#FFFFFF" />
-                      <Text style={styles.tabActiveText}>{tab.label}</Text>
+                      <Ionicons name={filter.icon} size={17} color="#FFFFFF" />
+                      <Text style={styles.filterActiveText}>{filter.label}</Text>
                     </LinearGradient>
                   ) : (
-                    <View style={styles.tabInactive}>
-                      <Ionicons name={tab.icon} size={16} color="#6B7280" />
-                      <Text style={styles.tabInactiveText}>{tab.label}</Text>
+                    <View style={styles.filterInactive}>
+                      <Ionicons name={filter.icon} size={17} color="#4A6FA5" />
+                      <Text style={styles.filterInactiveText}>
+                        {filter.label}
+                      </Text>
                     </View>
                   )}
                 </Pressable>
@@ -1523,159 +1512,157 @@ export default function ExplorarScreen() {
             })}
           </ScrollView>
 
-          {activeFilter === "Tendencias" && (
-            <View style={styles.hashtagsSection}>
-              <Text style={styles.hashtagsTitle}>Hashtags populares</Text>
+          <Text style={styles.sectionTitle}>Tendencias</Text>
 
-              <View style={styles.hashtagsGrid}>
-                {trendingHashtags.map((hashtag) => (
-                  <View key={hashtag.tag} style={styles.hashtagCard}>
-                    <View style={styles.hashtagRow}>
-                      <Ionicons
-                        name="pricetag-outline"
-                        size={14}
-                        color="#A78BFA"
-                      />
-
-                      <Text style={styles.hashtagName}>{hashtag.tag}</Text>
-                    </View>
-
-                    <Text style={styles.hashtagCount}>
-                      {hashtag.count} posts
-                    </Text>
-                  </View>
-                ))}
-              </View>
-            </View>
-          )}
+          <View style={styles.hashtagsGrid}>
+            {trendingHashtags.map((item) => (
+              <Pressable
+                key={item.tag}
+                style={styles.hashtagCard}
+                onPress={() => setSearch(item.tag)}
+              >
+                <View style={styles.hashtagRow}>
+                  <Ionicons name="pricetag-outline" size={18} color="#7C3AED" />
+                  <Text style={styles.hashtagText}>{item.tag}</Text>
+                </View>
+                <Text style={styles.hashtagCount}>{item.count} posts</Text>
+              </Pressable>
+            ))}
+          </View>
 
           {loading ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#A78BFA" />
-              <Text style={styles.loadingText}>Cargando tendencias...</Text>
+            <View style={styles.loadingBox}>
+              <ActivityIndicator color="#4A6FA5" size="large" />
+              <Text style={styles.loadingText}>Cargando publicaciones...</Text>
             </View>
           ) : filteredPosts.length === 0 ? (
-            <View style={styles.emptyContainer}>
-              <Ionicons name="sparkles-outline" size={46} color="#9CA3AF" />
-
-              <Text style={styles.emptyTitle}>Sin publicaciones</Text>
-
+            <View style={styles.emptyBox}>
+              <Ionicons name="images-outline" size={42} color="#AAB7C4" />
+              <Text style={styles.emptyTitle}>No hay publicaciones todavía</Text>
               <Text style={styles.emptyText}>
-                Aún no hay outfits para este filtro. ¡Sé la primera en publicar!
+                Publica una foto desde la sección de Outfits para verla aquí.
               </Text>
             </View>
           ) : (
-            <View style={styles.feedList}>
-              {filteredPosts.map((postItem) => renderPostCard(postItem))}
-            </View>
+            <View style={styles.feed}>{filteredPosts.map(renderPost)}</View>
           )}
         </View>
       </ScrollView>
 
       <Modal
-        visible={commentModalVisible && !!selectedPost}
+        visible={commentModalVisible}
         transparent
         animationType="slide"
         onRequestClose={() => setCommentModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.commentsModal}>
-            {selectedPost && (
-              <>
-                <Text style={styles.modalTitle}>Comentarios</Text>
+          <View style={styles.commentSheet}>
+            <View style={styles.modalHandle} />
 
-                <Text style={styles.modalSubtitle}>{selectedPost.title}</Text>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Comentarios</Text>
 
-                <FlatList
-                  style={{ marginTop: 10, maxHeight: 280 }}
-                  data={selectedPost.comments}
-                  keyExtractor={(c) => c.id}
-                  ListEmptyComponent={
-                    <Text style={styles.modalEmptyText}>
-                      Aún no hay comentarios. ¡Escribe el primero!
-                    </Text>
-                  }
-                  renderItem={({ item }) => (
-                    <View style={styles.commentCard}>
-                      <Text style={styles.commentAuthor}>
-                        {item.user?.name || "Usuario"}
-                      </Text>
+              <Pressable onPress={() => setCommentModalVisible(false)}>
+                <Ionicons name="close" size={25} color="#1F2A44" />
+              </Pressable>
+            </View>
 
-                      <Text style={styles.commentText}>{item.content}</Text>
-                    </View>
-                  )}
-                />
-
-                <View style={styles.commentInputRow}>
-                  <TextInput
-                    value={commentText}
-                    onChangeText={setCommentText}
-                    placeholder="Escribe un comentario..."
-                    placeholderTextColor="#9CA3AF"
-                    style={styles.commentInput}
+            <ScrollView style={styles.commentsList}>
+              {(selectedPost?.comments || []).length === 0 ? (
+                <View style={styles.noCommentsBox}>
+                  <Ionicons
+                    name="chatbubble-outline"
+                    size={36}
+                    color="#AAB7C4"
                   />
-
-                  <Pressable
-                    style={styles.commentSendButton}
-                    onPress={handleAddComment}
-                  >
-                    <Ionicons name="send" size={18} color="#FFFFFF" />
-                  </Pressable>
+                  <Text style={styles.noCommentsText}>
+                    Aún no hay comentarios.
+                  </Text>
                 </View>
+              ) : (
+                selectedPost?.comments.map((comment) => (
+                  <View key={comment.id} style={styles.commentItem}>
+                    <View style={styles.commentAvatar}>
+                      <Text style={styles.commentAvatarText}>
+                        {(comment.user?.name || "U").charAt(0).toUpperCase()}
+                      </Text>
+                    </View>
 
-                <Pressable
-                  style={styles.closeModalButton}
-                  onPress={() => setCommentModalVisible(false)}
-                >
-                  <Text style={styles.closeModalButtonText}>Cerrar</Text>
-                </Pressable>
-              </>
-            )}
+                    <View style={styles.commentBubble}>
+                      <Text style={styles.commentUser}>
+                        {comment.user?.name || "Usuario"}
+                      </Text>
+                      <Text style={styles.commentContent}>{comment.content}</Text>
+                    </View>
+                  </View>
+                ))
+              )}
+            </ScrollView>
+
+            <View style={styles.commentInputRow}>
+              <TextInput
+                value={commentText}
+                onChangeText={setCommentText}
+                placeholder="Escribe un comentario..."
+                placeholderTextColor="#9CA3AF"
+                style={styles.commentInput}
+              />
+
+              <Pressable
+                onPress={handleCreateComment}
+                style={styles.sendCommentButton}
+              >
+                <Ionicons name="send" size={19} color="#FFFFFF" />
+              </Pressable>
+            </View>
           </View>
         </View>
       </Modal>
 
       <Modal
-        visible={editModalVisible && !!selectedPost}
+        visible={editModalVisible}
         transparent
         animationType="fade"
         onRequestClose={() => setEditModalVisible(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.editModal}>
-            <Text style={styles.modalTitle}>Editar publicación</Text>
+        <View style={styles.editOverlay}>
+          <View style={styles.editCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Editar publicación</Text>
+
+              <Pressable onPress={() => setEditModalVisible(false)}>
+                <Ionicons name="close" size={25} color="#1F2A44" />
+              </Pressable>
+            </View>
+
+            <Text style={styles.editLabel}>Título</Text>
 
             <TextInput
               value={editTitle}
               onChangeText={setEditTitle}
-              placeholder="Título de la publicación"
+              placeholder="Ej. Outfit casual elegante"
               placeholderTextColor="#9CA3AF"
               style={styles.editInput}
             />
 
-            <View style={styles.editButtonsRow}>
-              <Pressable
-                style={[styles.editButton, { backgroundColor: "#E5E7EB" }]}
-                onPress={() => setEditModalVisible(false)}
-                disabled={savingEdit}
-              >
-                <Text style={[styles.editButtonText, { color: "#111827" }]}>
-                  Cancelar
-                </Text>
-              </Pressable>
-
-              <Pressable
-                style={[styles.editButton, { backgroundColor: "#8B5CF6" }]}
-                onPress={handleEditPost}
-                disabled={savingEdit}
+            <Pressable
+              onPress={handleSaveEdit}
+              disabled={savingEdit}
+              style={styles.saveEditButtonWrapper}
+            >
+              <LinearGradient
+                colors={["#4A6FA5", "#8FB8A8"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.saveEditButton}
               >
                 {savingEdit ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
+                  <ActivityIndicator color="#FFFFFF" />
                 ) : (
-                  <Text style={styles.editButtonText}>Guardar</Text>
+                  <Text style={styles.saveEditButtonText}>Guardar cambios</Text>
                 )}
-              </Pressable>
-            </View>
+              </LinearGradient>
+            </Pressable>
           </View>
         </View>
       </Modal>
@@ -1686,350 +1673,483 @@ export default function ExplorarScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F6F2FB",
+    backgroundColor: "#F3F0FA",
   },
+
   scrollContent: {
     paddingBottom: 120,
   },
+
   header: {
-    paddingTop: 68,
+    paddingTop: 64,
     paddingHorizontal: 24,
     paddingBottom: 34,
-    borderBottomLeftRadius: 30,
-    borderBottomRightRadius: 30,
   },
-  headerTitle: {
-    fontSize: 34,
-    fontWeight: "700",
-    color: "#FFFFFF",
-    marginBottom: 4,
-  },
-  headerSubtitle: {
-    fontSize: 14,
-    color: "rgba(255,255,255,0.92)",
-  },
-  content: {
-    paddingHorizontal: 20,
-    marginTop: -12,
-  },
-  searchCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 22,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+
+  headerTop: {
     flexDirection: "row",
-    alignItems: "center",
-    shadowColor: "#1F2A44",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 14,
-    elevation: 4,
-    marginBottom: 16,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 15,
-    color: "#1F2937",
-  },
-  tabsRow: {
-    paddingBottom: 6,
-    paddingRight: 12,
-  },
-  tabPressable: {
-    marginRight: 10,
-  },
-  tabActive: {
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    borderRadius: 999,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  tabActiveText: {
-    color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  tabInactive: {
-    backgroundColor: "#FFFFFF",
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  tabInactiveText: {
-    color: "#4B5563",
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  hashtagsSection: {
-    marginTop: 16,
-    marginBottom: 18,
-  },
-  hashtagsTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#2D1B69",
-    marginBottom: 12,
-  },
-  hashtagsGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
     justifyContent: "space-between",
-  },
-  hashtagCard: {
-    width: "48%",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 18,
-    padding: 14,
-    marginBottom: 12,
-  },
-  hashtagRow: {
-    flexDirection: "row",
     alignItems: "center",
-    marginBottom: 6,
-    gap: 6,
   },
-  hashtagName: {
+
+  headerTitle: {
+    color: "#FFFFFF",
+    fontSize: 34,
+    fontWeight: "800",
+  },
+
+  headerSubtitle: {
+    color: "rgba(255,255,255,0.9)",
     fontSize: 14,
-    fontWeight: "700",
-    color: "#4C1D95",
+    marginTop: 5,
   },
-  hashtagCount: {
-    fontSize: 12,
-    color: "#6B7280",
-  },
-  loadingContainer: {
-    paddingVertical: 50,
-    alignItems: "center",
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 14,
-    color: "#6B7280",
-  },
-  emptyContainer: {
-    paddingVertical: 50,
-    alignItems: "center",
-  },
-  emptyTitle: {
-    marginTop: 12,
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#374151",
-  },
-  emptyText: {
-    marginTop: 8,
-    fontSize: 14,
-    color: "#6B7280",
-    textAlign: "center",
-    lineHeight: 21,
-    paddingHorizontal: 16,
-  },
-  feedList: {
-    marginTop: 6,
-  },
-  postCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 28,
-    overflow: "hidden",
-    marginBottom: 18,
-    shadowColor: "#1F2A44",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.08,
-    shadowRadius: 14,
-    elevation: 4,
-  },
-  postImage: {
-    width: "100%",
-    height: 420,
-    backgroundColor: "#E5E7EB",
-  },
-  postOverlay: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  postHeaderActions: {
-    position: "absolute",
-    top: 14,
-    right: 14,
-    flexDirection: "row",
-    gap: 8,
-  },
-  topIconButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.92)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  postFooter: {
-    position: "absolute",
-    left: 16,
-    right: 16,
-    bottom: 16,
-  },
-  userRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  avatarCircle: {
-    width: 38,
-    height: 38,
+
+  headerIcon: {
+    width: 50,
+    height: 50,
     borderRadius: 999,
     backgroundColor: "rgba(255,255,255,0.22)",
     alignItems: "center",
     justifyContent: "center",
+  },
+
+  searchCard: {
+    marginTop: 22,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 999,
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  searchInput: {
+    flex: 1,
+    marginLeft: 10,
+    fontSize: 14,
+    color: "#1F2A44",
+  },
+
+  content: {
+    paddingHorizontal: 20,
+    marginTop: 22,
+  },
+
+  filtersRow: {
+    paddingBottom: 12,
+  },
+
+  filterPressable: {
     marginRight: 10,
   },
-  avatarText: {
-    color: "#FFFFFF",
-    fontWeight: "700",
-    fontSize: 15,
+
+  filterActive: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 999,
+    paddingHorizontal: 16,
+    paddingVertical: 11,
   },
-  userName: {
+
+  filterActiveText: {
     color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "700",
+    fontWeight: "800",
+    fontSize: 13,
+    marginLeft: 6,
   },
-  postStyle: {
-    color: "rgba(255,255,255,0.82)",
-    fontSize: 12,
-    marginTop: 2,
+
+  filterInactive: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 999,
+    paddingHorizontal: 16,
+    paddingVertical: 11,
+    backgroundColor: "#FFFFFF",
   },
-  postTitle: {
-    color: "#FFFFFF",
-    fontSize: 20,
-    fontWeight: "700",
+
+  filterInactiveText: {
+    color: "#4A6FA5",
+    fontWeight: "800",
+    fontSize: 13,
+    marginLeft: 6,
+  },
+
+  sectionTitle: {
+    fontSize: 24,
+    fontWeight: "800",
+    color: "#1F2A44",
+    marginTop: 6,
+    marginBottom: 14,
+  },
+
+  hashtagsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    marginBottom: 24,
+  },
+
+  hashtagCard: {
+    width: "48%",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    padding: 15,
     marginBottom: 12,
   },
+
+  hashtagRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+
+  hashtagText: {
+    color: "#5B21B6",
+    fontWeight: "800",
+    fontSize: 15,
+    marginLeft: 7,
+  },
+
+  hashtagCount: {
+    color: "#6B7280",
+    fontSize: 13,
+  },
+
+  feed: {
+    marginTop: 4,
+  },
+
+  postCard: {
+    height: 430,
+    borderRadius: 28,
+    overflow: "hidden",
+    backgroundColor: "#FFFFFF",
+    marginBottom: 28,
+    shadowColor: "#1F2A44",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 6,
+  },
+
+  postImage: {
+    width: "100%",
+    height: "100%",
+    backgroundColor: "#E5E7EB",
+  },
+
+  postOverlay: {
+    ...StyleSheet.absoluteFillObject,
+  },
+
+  postTopActions: {
+    position: "absolute",
+    top: 18,
+    right: 18,
+    flexDirection: "row",
+  },
+
+  floatingButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.95)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 10,
+  },
+
+  floatingButtonDanger: {
+    width: 48,
+    height: 48,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.95)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 10,
+  },
+
+  postAuthorRow: {
+    position: "absolute",
+    left: 18,
+    right: 18,
+    bottom: 135,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  avatarSmall: {
+    width: 54,
+    height: 54,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.25)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+
+  avatarLetter: {
+    color: "#FFFFFF",
+    fontWeight: "900",
+    fontSize: 22,
+  },
+
+  authorName: {
+    color: "#FFFFFF",
+    fontSize: 17,
+    fontWeight: "800",
+  },
+
+  postStyle: {
+    color: "rgba(255,255,255,0.86)",
+    fontSize: 14,
+    marginTop: 2,
+  },
+
+  postBottom: {
+    position: "absolute",
+    left: 18,
+    right: 18,
+    bottom: 20,
+  },
+
+  postTitle: {
+    color: "#FFFFFF",
+    fontSize: 26,
+    fontWeight: "900",
+    marginBottom: 16,
+  },
+
   actionsRow: {
     flexDirection: "row",
     alignItems: "center",
   },
-  iconRow: {
+
+  actionButton: {
     flexDirection: "row",
     alignItems: "center",
-    marginRight: 16,
+    marginRight: 20,
   },
-  iconText: {
-    marginLeft: 6,
+
+  actionText: {
     color: "#FFFFFF",
-    fontSize: 14,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.45)",
-    justifyContent: "center",
-    paddingHorizontal: 18,
-  },
-  commentsModal: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 22,
-    padding: 18,
-    maxHeight: "80%",
-  },
-  editModal: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 22,
-    padding: 18,
-  },
-  modalTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: "700",
-    color: "#111827",
+    marginLeft: 7,
   },
-  modalSubtitle: {
-    fontSize: 13,
-    color: "#6B7280",
-    marginTop: 4,
-  },
-  modalEmptyText: {
-    fontSize: 14,
-    color: "#6B7280",
-    textAlign: "center",
-    marginTop: 18,
-  },
-  commentCard: {
-    backgroundColor: "#F9FAFB",
-    borderRadius: 14,
-    padding: 12,
-    marginBottom: 10,
-  },
-  commentAuthor: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#374151",
-    marginBottom: 4,
-  },
-  commentText: {
-    fontSize: 14,
-    color: "#4B5563",
-    lineHeight: 20,
-  },
-  commentInputRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 14,
-  },
-  commentInput: {
-    flex: 1,
-    backgroundColor: "#F3F4F6",
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    marginRight: 10,
-    color: "#111827",
-  },
-  commentSendButton: {
+
+  shareButton: {
     width: 44,
     height: 44,
     borderRadius: 999,
-    backgroundColor: "#8B5CF6",
     alignItems: "center",
     justifyContent: "center",
   },
-  closeModalButton: {
-    marginTop: 14,
-    backgroundColor: "#111827",
-    borderRadius: 14,
-    paddingVertical: 12,
+
+  moreButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 4,
+  },
+
+  loadingBox: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 26,
+    padding: 30,
     alignItems: "center",
   },
-  closeModalButtonText: {
-    color: "#FFFFFF",
-    fontWeight: "700",
+
+  loadingText: {
+    color: "#6B7280",
+    marginTop: 10,
   },
-  editInput: {
-    marginTop: 14,
-    backgroundColor: "#F3F4F6",
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    color: "#111827",
+
+  emptyBox: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 26,
+    padding: 30,
+    alignItems: "center",
   },
-  editButtonsRow: {
-    flexDirection: "row",
+
+  emptyTitle: {
+    color: "#1F2A44",
+    fontSize: 18,
+    fontWeight: "800",
+    marginTop: 12,
+    textAlign: "center",
+  },
+
+  emptyText: {
+    color: "#6B7280",
+    fontSize: 13,
+    lineHeight: 20,
+    marginTop: 6,
+    textAlign: "center",
+  },
+
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(15,23,42,0.50)",
     justifyContent: "flex-end",
-    marginTop: 16,
   },
-  editButton: {
-    minWidth: 96,
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    marginLeft: 8,
+
+  commentSheet: {
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    maxHeight: "78%",
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 18,
+  },
+
+  modalHandle: {
+    width: 46,
+    height: 5,
+    borderRadius: 999,
+    backgroundColor: "#D1D5DB",
+    alignSelf: "center",
+    marginBottom: 16,
+  },
+
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 14,
+  },
+
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: "#1F2A44",
+  },
+
+  commentsList: {
+    maxHeight: 320,
+  },
+
+  noCommentsBox: {
+    paddingVertical: 32,
+    alignItems: "center",
+  },
+
+  noCommentsText: {
+    color: "#6B7280",
+    marginTop: 8,
+  },
+
+  commentItem: {
+    flexDirection: "row",
+    marginBottom: 14,
+  },
+
+  commentAvatar: {
+    width: 38,
+    height: 38,
+    borderRadius: 999,
+    backgroundColor: "#4A6FA5",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 10,
+  },
+
+  commentAvatarText: {
+    color: "#FFFFFF",
+    fontWeight: "900",
+  },
+
+  commentBubble: {
+    flex: 1,
+    backgroundColor: "#EEF3F7",
+    borderRadius: 18,
+    padding: 12,
+  },
+
+  commentUser: {
+    color: "#1F2A44",
+    fontWeight: "800",
+    fontSize: 13,
+    marginBottom: 3,
+  },
+
+  commentContent: {
+    color: "#4B5563",
+    fontSize: 13,
+    lineHeight: 18,
+  },
+
+  commentInputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 12,
+  },
+
+  commentInput: {
+    flex: 1,
+    backgroundColor: "#EEF3F7",
+    borderRadius: 999,
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    color: "#1F2A44",
+    marginRight: 10,
+  },
+
+  sendCommentButton: {
+    width: 46,
+    height: 46,
+    borderRadius: 999,
+    backgroundColor: "#4A6FA5",
     alignItems: "center",
     justifyContent: "center",
   },
-  editButtonText: {
+
+  editOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(15,23,42,0.50)",
+    justifyContent: "center",
+    paddingHorizontal: 22,
+  },
+
+  editCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 28,
+    padding: 22,
+  },
+
+  editLabel: {
+    color: "#4B5563",
+    fontWeight: "800",
+    marginBottom: 8,
+  },
+
+  editInput: {
+    backgroundColor: "#EEF3F7",
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    color: "#1F2A44",
+    fontSize: 15,
+    marginBottom: 16,
+  },
+
+  saveEditButtonWrapper: {
+    borderRadius: 999,
+    overflow: "hidden",
+  },
+
+  saveEditButton: {
+    borderRadius: 999,
+    paddingVertical: 15,
+    alignItems: "center",
+  },
+
+  saveEditButtonText: {
     color: "#FFFFFF",
-    fontWeight: "700",
+    fontSize: 15,
+    fontWeight: "800",
   },
 });

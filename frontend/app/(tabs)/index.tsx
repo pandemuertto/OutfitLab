@@ -685,40 +685,107 @@
 //   },
 // });
 
-import React from "react";
+import React, { useCallback, useState } from "react";
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   Pressable,
+  Image,
+  ActivityIndicator,
+  RefreshControl,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import { useAuth } from "@/src/contexts/auth";
+import { get } from "@/src/api";
 
+type ClothingItem = {
+  id: number;
+  userId?: number;
+  imageUrl: string;
+  type?: string | null;
+  color?: string | null;
+  brand?: string | null;
+  category?: string | null;
+  confidence?: number | null;
+  createdAt?: string;
+};
 
 export default function HomeScreen() {
   const router = useRouter();
   const { user } = useAuth();
 
   const userName = user?.name ?? "Usuario";
+  const userId = user?.id;
+
+  const [clothes, setClothes] = useState<ClothingItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
 
   const trends = ["Minimal Chic", "Boho Style", "Streetwear", "Vintage", "Elegant"];
+
+  const hasClothes = clothes.length > 0;
+
+  const loadClothes = async () => {
+    if (!userId) return;
+
+    try {
+      setErrorMessage("");
+      setLoading(true);
+
+      const data = await get<ClothingItem[]>(`/api/clothes/user/${userId}`);
+
+      setClothes(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error("❌ Error cargando prendas en inicio:", error);
+      setErrorMessage("No pudimos cargar tu armario por ahora.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      loadClothes();
+    }, [userId])
+  );
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadClothes();
+    setRefreshing(false);
+  };
+
+  const latestClothes = clothes.slice(0, 6);
+
+  const categoriesCount = clothes.reduce<Record<string, number>>((acc, item) => {
+    const category = item.category || item.type || "Sin categoría";
+    acc[category] = (acc[category] || 0) + 1;
+    return acc;
+  }, {});
+
+  const categories = Object.entries(categoriesCount).slice(0, 4);
 
   const quickActions = [
     {
       id: "wardrobe",
-      title: "Sube tu primera prenda",
-      subtitle: "Empieza a construir tu armario digital",
+      title: hasClothes ? "Agrega otra prenda" : "Sube tu primera prenda",
+      subtitle: hasClothes
+        ? "Mantén actualizado tu armario digital"
+        : "Empieza a construir tu armario digital",
       icon: "shirt-outline" as const,
-      route: "/upload-clothing",
+      route: "/(tabs)/armario",
     },
     {
       id: "generate",
-      title: "Genera tu primer outfit",
-      subtitle: "Recibe una recomendación con tu estilo",
+      title: hasClothes ? "Genera un outfit" : "Genera tu primer outfit",
+      subtitle: hasClothes
+        ? "Crea combinaciones usando tus prendas"
+        : "Recibe una recomendación con tu estilo",
       icon: "sparkles-outline" as const,
       route: "/(tabs)/outfits",
     },
@@ -736,6 +803,9 @@ export default function HomeScreen() {
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
       >
         <LinearGradient
           colors={["#4A6FA5", "#8FB8A8", "#A78BFA"]}
@@ -762,7 +832,9 @@ export default function HomeScreen() {
 
             <Text style={styles.heroTitle}>Hoy: 24°C · Soleado</Text>
             <Text style={styles.heroSubtitle}>
-              Un día perfecto para empezar con un look fresco y ligero.
+              {hasClothes
+                ? "Ya tienes prendas en tu armario. Puedes generar un outfit más personalizado."
+                : "Un día perfecto para empezar con un look fresco y ligero."}
             </Text>
 
             <Pressable
@@ -776,16 +848,37 @@ export default function HomeScreen() {
                 style={styles.primaryButton}
               >
                 <Text style={styles.primaryButtonText}>
-                  Generar outfit para hoy
+                  {hasClothes ? "Generar outfit con mi armario" : "Generar outfit para hoy"}
                 </Text>
               </LinearGradient>
             </Pressable>
           </View>
 
+          {loading && clothes.length === 0 ? (
+            <View style={styles.loadingCard}>
+              <ActivityIndicator size="small" color="#4A6FA5" />
+              <Text style={styles.loadingText}>Cargando tu armario...</Text>
+            </View>
+          ) : null}
+
+          {errorMessage ? (
+            <View style={styles.errorCard}>
+              <Ionicons name="warning-outline" size={22} color="#B45309" />
+              <Text style={styles.errorText}>{errorMessage}</Text>
+              <Pressable onPress={loadClothes} style={styles.retryButton}>
+                <Text style={styles.retryButtonText}>Reintentar</Text>
+              </Pressable>
+            </View>
+          ) : null}
+
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Tus primeros pasos</Text>
+            <Text style={styles.sectionTitle}>
+              {hasClothes ? "Acciones rápidas" : "Tus primeros pasos"}
+            </Text>
             <Text style={styles.sectionSubtitle}>
-              Como todavía estás empezando, aquí tienes acciones útiles para personalizar tu experiencia.
+              {hasClothes
+                ? "Sigue construyendo tu estilo con tu armario digital."
+                : "Como todavía estás empezando, aquí tienes acciones útiles para personalizar tu experiencia."}
             </Text>
 
             {quickActions.map((item) => (
@@ -809,22 +902,106 @@ export default function HomeScreen() {
           </View>
 
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Tu armario está vacío</Text>
+            <Text style={styles.sectionTitle}>
+              {hasClothes ? "Tu armario" : "Tu armario está vacío"}
+            </Text>
 
-            <View style={styles.emptyCard}>
-              <Ionicons name="images-outline" size={34} color="#8FB8A8" />
-              <Text style={styles.emptyTitle}>Aún no has agregado prendas</Text>
-              <Text style={styles.emptySubtitle}>
-                Sube algunas fotos de ropa para que OutfitLab pueda recomendarte combinaciones más personalizadas.
-              </Text>
+            {!hasClothes ? (
+              <View style={styles.emptyCard}>
+                <Ionicons name="images-outline" size={34} color="#8FB8A8" />
+                <Text style={styles.emptyTitle}>Aún no has agregado prendas</Text>
+                <Text style={styles.emptySubtitle}>
+                  Sube algunas fotos de ropa para que OutfitLab pueda recomendarte combinaciones más personalizadas.
+                </Text>
 
-              <Pressable
-                onPress={() => router.push("/upload-clothing")}
-                style={styles.secondaryButton}
-              >
-                <Text style={styles.secondaryButtonText}>Agregar prenda</Text>
-              </Pressable>
-            </View>
+                <Pressable
+                  onPress={() => router.push("/upload-clothing")}
+                  style={styles.secondaryButton}
+                >
+                  <Text style={styles.secondaryButtonText}>Agregar prenda</Text>
+                </Pressable>
+              </View>
+            ) : (
+              <View>
+                <View style={styles.summaryCard}>
+                  <View style={styles.summaryItem}>
+                    <Text style={styles.summaryNumber}>{clothes.length}</Text>
+                    <Text style={styles.summaryLabel}>
+                      {clothes.length === 1 ? "prenda" : "prendas"}
+                    </Text>
+                  </View>
+
+                  <View style={styles.summaryDivider} />
+
+                  <View style={styles.summaryItem}>
+                    <Text style={styles.summaryNumber}>{Object.keys(categoriesCount).length}</Text>
+                    <Text style={styles.summaryLabel}>
+                      {Object.keys(categoriesCount).length === 1 ? "categoría" : "categorías"}
+                    </Text>
+                  </View>
+                </View>
+
+                {categories.length > 0 ? (
+                  <View style={styles.categoriesContainer}>
+                    {categories.map(([category, count]) => (
+                      <View key={category} style={styles.categoryChip}>
+                        <Text style={styles.categoryChipText}>
+                          {category} · {count}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                ) : null}
+
+                <View style={styles.latestHeader}>
+                  <Text style={styles.latestTitle}>Últimas prendas</Text>
+
+                  <Pressable onPress={() => router.push("/(tabs)/armario" as any)}>
+                    <Text style={styles.viewAllText}>Ver todo</Text>
+                  </Pressable>
+                </View>
+
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.clothesList}
+                >
+                  {latestClothes.map((item) => (
+                    <Pressable
+                      key={item.id}
+                      style={styles.clothingCard}
+                      onPress={() => router.push("/(tabs)/armario" as any)}
+                    >
+                      <Image
+                        source={{ uri: item.imageUrl }}
+                        style={styles.clothingImage}
+                        resizeMode="cover"
+                      />
+
+                      <View style={styles.clothingInfo}>
+                        <Text style={styles.clothingCategory} numberOfLines={1}>
+                          {item.category || item.type || "Prenda"}
+                        </Text>
+
+                        {item.color ? (
+                          <Text style={styles.clothingDetail} numberOfLines={1}>
+                            {item.color}
+                          </Text>
+                        ) : null}
+                      </View>
+                    </Pressable>
+                  ))}
+
+                  <Pressable
+                    onPress={() => router.push("/upload-clothing")}
+                    style={styles.addMoreCard}
+                  >
+                    <Ionicons name="add" size={26} color="#4A6FA5" />
+                    <Text style={styles.addMoreText}>Agregar</Text>
+                  </Pressable>
+                </ScrollView>
+              </View>
+            )}
           </View>
 
           <View style={styles.section}>
@@ -835,9 +1012,13 @@ export default function HomeScreen() {
 
             <View style={styles.trendsContainer}>
               {trends.map((trend) => (
-                <View key={trend} style={styles.trendChip}>
+                <Pressable
+                  key={trend}
+                  style={styles.trendChip}
+                  onPress={() => router.push("/(tabs)/explorar" as any)}
+                >
                   <Text style={styles.trendChipText}>{trend}</Text>
-                </View>
+                </Pressable>
               ))}
             </View>
           </View>
@@ -850,6 +1031,7 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#EEF3F7" },
   scrollContent: { paddingBottom: 28 },
+
   header: {
     paddingTop: 64,
     paddingHorizontal: 24,
@@ -857,12 +1039,14 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 28,
     borderBottomRightRadius: 28,
   },
+
   greeting: {
     fontSize: 34,
     fontWeight: "600",
     color: "#FFFFFF",
     marginBottom: 8,
   },
+
   headerSubtitle: {
     fontSize: 14,
     lineHeight: 22,
@@ -870,6 +1054,7 @@ const styles = StyleSheet.create({
     maxWidth: 310,
     marginBottom: 18,
   },
+
   welcomeBadge: {
     alignSelf: "flex-start",
     flexDirection: "row",
@@ -879,16 +1064,19 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 999,
   },
+
   welcomeBadgeText: {
     color: "#FFFFFF",
     marginLeft: 8,
     fontSize: 13,
     fontWeight: "500",
   },
+
   content: {
     paddingHorizontal: 24,
     marginTop: -12,
   },
+
   heroCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 28,
@@ -900,6 +1088,7 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 6,
   },
+
   heroIcon: {
     width: 52,
     height: 52,
@@ -909,56 +1098,113 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 14,
   },
+
   heroTitle: {
     fontSize: 18,
     fontWeight: "700",
     color: "#1F2A44",
     marginBottom: 6,
   },
+
   heroSubtitle: {
     fontSize: 13,
     lineHeight: 20,
     color: "#6B7280",
     marginBottom: 18,
   },
+
   primaryButtonWrapper: {},
+
   primaryButton: {
     borderRadius: 999,
     paddingVertical: 14,
     alignItems: "center",
     justifyContent: "center",
   },
+
   primaryButtonText: {
     color: "#FFFFFF",
     fontSize: 15,
     fontWeight: "600",
   },
+
+  loadingCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 18,
+    padding: 16,
+    marginBottom: 20,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  loadingText: {
+    marginLeft: 10,
+    color: "#6B7280",
+    fontSize: 13,
+  },
+
+  errorCard: {
+    backgroundColor: "#FFF7ED",
+    borderRadius: 18,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: "#FED7AA",
+  },
+
+  errorText: {
+    color: "#92400E",
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 8,
+    marginBottom: 10,
+  },
+
+  retryButton: {
+    alignSelf: "flex-start",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+
+  retryButtonText: {
+    color: "#92400E",
+    fontWeight: "600",
+    fontSize: 12,
+  },
+
   section: {
     marginBottom: 26,
   },
+
   sectionTitle: {
     fontSize: 24,
     fontWeight: "600",
     color: "#1F2A44",
     marginBottom: 8,
   },
+
   sectionSubtitle: {
     fontSize: 13,
     lineHeight: 20,
     color: "#6B7280",
     marginBottom: 16,
   },
+
   sectionTitleRow: {
     flexDirection: "row",
     alignItems: "center",
     marginBottom: 14,
   },
+
   sectionTitleSmall: {
     marginLeft: 8,
     fontSize: 21,
     fontWeight: "600",
     color: "#1F2A44",
   },
+
   actionCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 22,
@@ -972,6 +1218,7 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
   },
+
   actionIcon: {
     width: 46,
     height: 46,
@@ -981,20 +1228,24 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginRight: 14,
   },
+
   actionTextContainer: {
     flex: 1,
   },
+
   actionTitle: {
     fontSize: 15,
     fontWeight: "600",
     color: "#1F2A44",
     marginBottom: 4,
   },
+
   actionSubtitle: {
     fontSize: 12,
     lineHeight: 18,
     color: "#6B7280",
   },
+
   emptyCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 24,
@@ -1006,6 +1257,7 @@ const styles = StyleSheet.create({
     shadowRadius: 14,
     elevation: 4,
   },
+
   emptyTitle: {
     fontSize: 17,
     fontWeight: "700",
@@ -1014,6 +1266,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     textAlign: "center",
   },
+
   emptySubtitle: {
     fontSize: 13,
     lineHeight: 20,
@@ -1021,6 +1274,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginBottom: 16,
   },
+
   secondaryButton: {
     borderWidth: 1,
     borderColor: "#4A6FA5",
@@ -1028,15 +1282,153 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 999,
   },
+
   secondaryButtonText: {
     color: "#4A6FA5",
     fontSize: 14,
     fontWeight: "600",
   },
+
+  summaryCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 24,
+    padding: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 14,
+    shadowColor: "#1F2A44",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    elevation: 4,
+  },
+
+  summaryItem: {
+    flex: 1,
+    alignItems: "center",
+  },
+
+  summaryNumber: {
+    fontSize: 28,
+    fontWeight: "700",
+    color: "#1F2A44",
+  },
+
+  summaryLabel: {
+    fontSize: 13,
+    color: "#6B7280",
+    marginTop: 2,
+  },
+
+  summaryDivider: {
+    width: 1,
+    height: 42,
+    backgroundColor: "#E5E7EB",
+  },
+
+  categoriesContainer: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    marginBottom: 14,
+  },
+
+  categoryChip: {
+    backgroundColor: "rgba(143,184,168,0.15)",
+    borderRadius: 999,
+    paddingHorizontal: 13,
+    paddingVertical: 8,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+
+  categoryChipText: {
+    color: "#3F6F62",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+
+  latestHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+
+  latestTitle: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: "#1F2A44",
+  },
+
+  viewAllText: {
+    color: "#4A6FA5",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+
+  clothesList: {
+    paddingRight: 24,
+  },
+
+  clothingCard: {
+    width: 118,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    marginRight: 12,
+    overflow: "hidden",
+    shadowColor: "#1F2A44",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.07,
+    shadowRadius: 10,
+    elevation: 3,
+  },
+
+  clothingImage: {
+    width: "100%",
+    height: 118,
+    backgroundColor: "#E5E7EB",
+  },
+
+  clothingInfo: {
+    padding: 10,
+  },
+
+  clothingCategory: {
+    fontSize: 13,
+    color: "#1F2A44",
+    fontWeight: "700",
+  },
+
+  clothingDetail: {
+    fontSize: 11,
+    color: "#6B7280",
+    marginTop: 2,
+  },
+
+  addMoreCard: {
+    width: 98,
+    height: 158,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: "#4A6FA5",
+  },
+
+  addMoreText: {
+    marginTop: 6,
+    color: "#4A6FA5",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+
   trendsContainer: {
     flexDirection: "row",
     flexWrap: "wrap",
   },
+
   trendChip: {
     backgroundColor: "#FFFFFF",
     borderWidth: 1,
@@ -1047,6 +1439,7 @@ const styles = StyleSheet.create({
     marginRight: 10,
     marginBottom: 10,
   },
+
   trendChipText: {
     color: "#374151",
     fontSize: 13,

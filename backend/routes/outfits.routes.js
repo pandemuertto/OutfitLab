@@ -6,6 +6,10 @@ const upload = require("../lib/multer");
 const prisma = new PrismaClient();
 const router = Router();
 
+/* =========================================================
+   HELPERS
+========================================================= */
+
 function safeLower(value) {
   return String(value || "").toLowerCase().trim();
 }
@@ -13,26 +17,36 @@ function safeLower(value) {
 function normalizeWeather(value) {
   const weather = safeLower(value);
 
-  const map = {
-    sunny: "soleado",
-    sun: "soleado",
-    soleado: "soleado",
+  if (["sunny", "soleado", "calor"].includes(weather)) return "sunny";
+  if (["cloudy", "nublado"].includes(weather)) return "cloudy";
+  if (["cold", "frio", "frío"].includes(weather)) return "cold";
+  if (["rainy", "lluvioso", "lluvia"].includes(weather)) return "rainy";
 
-    cloudy: "nublado",
-    cloud: "nublado",
-    nublado: "nublado",
+  return weather;
+}
 
-    cold: "frio",
-    frío: "frio",
-    frio: "frio",
+function normalizeOccasion(value) {
+  const occasion = safeLower(value);
 
-    rainy: "lluvia",
-    rain: "lluvia",
-    lluvioso: "lluvia",
-    lluvia: "lluvia",
-  };
+  if (["casual"].includes(occasion)) return "casual";
+  if (["trabajo", "oficina", "work"].includes(occasion)) return "trabajo";
+  if (["fiesta", "party"].includes(occasion)) return "fiesta";
+  if (["romantico", "romántico", "date"].includes(occasion)) return "romantico";
+  if (["deportivo", "sport", "gym"].includes(occasion)) return "deportivo";
 
-  return map[weather] || weather;
+  return occasion;
+}
+
+function normalizeDressCode(value) {
+  const style = safeLower(value);
+
+  if (["moderno"].includes(style)) return "moderno";
+  if (["clasico", "clásico"].includes(style)) return "clasico";
+  if (["boho"].includes(style)) return "boho";
+  if (["minimal", "minimalista"].includes(style)) return "minimal";
+  if (["elegante", "formal", "chic"].includes(style)) return "elegante";
+
+  return style;
 }
 
 function groupClothesByCategory(clothes) {
@@ -43,84 +57,8 @@ function groupClothesByCategory(clothes) {
     outerwear: clothes.filter((c) => c.category === "outerwear"),
     shoes: clothes.filter((c) => c.category === "shoes"),
     accessories: clothes.filter((c) => c.category === "accessory"),
-    others: clothes.filter((c) => c.category === "other" || !c.category),
+    others: clothes.filter((c) => !c.category || c.category === "other"),
   };
-}
-
-function scoreClothing(item, context) {
-  let score = 0;
-
-  const type = safeLower(item.type);
-  const category = safeLower(item.category);
-  const color = safeLower(item.color);
-  const occasion = safeLower(context.occasion);
-  const weather = normalizeWeather(context.weather);
-
-  if (typeof item.confidence === "number") {
-    score += item.confidence * 10;
-  } else {
-    score += 3;
-  }
-
-  if (occasion === "casual") {
-    if (["top", "bottom", "shoes"].includes(category)) score += 8;
-    if (["t-shirt", "shirt", "blouse", "jeans", "pants", "shoe"].includes(type)) score += 10;
-    if (["blazer", "heel"].includes(type)) score -= 3;
-  }
-
-  if (occasion === "trabajo") {
-    if (
-      ["shirt", "blouse", "trousers", "pants", "blazer", "coat", "jacket", "heel", "shoe"].includes(type)
-    ) {
-      score += 14;
-    }
-    if (category === "outerwear") score += 8;
-    if (["hoodie", "shorts"].includes(type)) score -= 10;
-  }
-
-  if (occasion === "fiesta") {
-    if (["dress", "skirt", "blouse", "heel", "shoe"].includes(type)) score += 14;
-    if (category === "accessory") score += 6;
-  }
-
-  if (occasion === "romantico") {
-    if (["dress", "skirt", "blouse", "heel", "shoe"].includes(type)) score += 13;
-    if (category === "accessory") score += 5;
-  }
-
-  if (occasion === "deportivo") {
-    if (["t-shirt", "shorts", "shoe", "hoodie"].includes(type)) score += 14;
-    if (["blazer", "coat", "heel"].includes(type)) score -= 10;
-  }
-
-  if (weather === "soleado") {
-    if (["dress", "t-shirt", "shirt", "blouse", "shorts", "skirt"].includes(type)) score += 8;
-    if (["coat", "jacket", "blazer", "outerwear"].includes(type)) score -= 8;
-  }
-
-  if (weather === "nublado") {
-    if (["jacket", "cardigan", "outerwear", "blazer"].includes(type)) score += 6;
-  }
-
-  if (weather === "frio") {
-    if (["coat", "jacket", "cardigan", "blazer", "outerwear"].includes(type)) score += 14;
-    if (["shorts"].includes(type)) score -= 12;
-  }
-
-  if (weather === "lluvia") {
-    if (["coat", "jacket", "outerwear", "shoe"].includes(type)) score += 12;
-    if (["shorts", "heel"].includes(type)) score -= 4;
-  }
-
-  if (Array.isArray(context.favoriteColors) && context.favoriteColors.includes(color)) {
-    score += 6;
-  }
-
-  if (Array.isArray(context.dislikedColors) && context.dislikedColors.includes(color)) {
-    score -= 6;
-  }
-
-  return score;
 }
 
 function colorCompatibilityScore(a, b) {
@@ -128,26 +66,45 @@ function colorCompatibilityScore(a, b) {
   const colorB = safeLower(b?.color);
 
   if (!colorA || !colorB) return 2;
-  if (colorA === colorB) return 8;
+  if (colorA === colorB) return 7;
 
-  const neutrals = ["negro", "blanco", "beige", "gris", "cafe", "brown", "cream", "khaki"];
-  if (neutrals.includes(colorA) || neutrals.includes(colorB)) return 6;
-
-  const softPairs = [
-    ["azul", "blanco"],
-    ["rosa", "blanco"],
-    ["beige", "negro"],
-    ["gris", "negro"],
-    ["azul", "gris"],
+  const neutrals = [
+    "negro",
+    "blanco",
+    "gris",
+    "beige",
+    "crema",
+    "khaki",
+    "cafe",
+    "café",
+    "brown",
   ];
 
-  const match = softPairs.some(
+  if (
+    neutrals.some((n) => colorA.includes(n)) ||
+    neutrals.some((n) => colorB.includes(n))
+  ) {
+    return 5;
+  }
+
+  const pairs = [
+    ["azul", "blanco"],
+    ["gris", "negro"],
+    ["rosa", "blanco"],
+    ["beige", "negro"],
+    ["vino", "negro"],
+    ["rojo", "negro"],
+    ["azul", "gris"],
+    ["verde", "beige"],
+  ];
+
+  const matches = pairs.some(
     ([x, y]) =>
       (colorA.includes(x) && colorB.includes(y)) ||
       (colorA.includes(y) && colorB.includes(x))
   );
 
-  if (match) return 5;
+  if (matches) return 4;
 
   return 1;
 }
@@ -164,47 +121,196 @@ function sumPairColorScore(pieces) {
   return score;
 }
 
-function addOptionalPieces(basePieces, grouped, context) {
+function scoreClothing(item, context) {
+  let score = 0;
+
+  const type = safeLower(item.type);
+  const category = safeLower(item.category);
+  const color = safeLower(item.color);
+  const occasion = normalizeOccasion(context.occasion);
   const weather = normalizeWeather(context.weather);
+  const style = normalizeDressCode(context.dressCode);
+
+  if (typeof item.confidence === "number") {
+    score += item.confidence * 10;
+  } else {
+    score += 3;
+  }
+
+  if (category === "other") score -= 8;
+
+  /* =========================
+     OCASIÓN
+  ========================= */
+  if (occasion === "casual") {
+    if (["top", "bottom", "shoes"].includes(category)) score += 8;
+    if (["t-shirt", "shirt", "blouse", "jeans", "pants", "shorts", "shoe"].includes(type)) score += 8;
+    if (["hat", "bag"].includes(type)) score += 2;
+  }
+
+  if (occasion === "trabajo") {
+    if (["shirt", "blouse", "pants", "trousers", "jacket", "blazer", "dress", "shoe"].includes(type)) score += 12;
+    if (category === "outerwear") score += 6;
+    if (["hoodie", "shorts", "hat"].includes(type)) score -= 10;
+  }
+
+  if (occasion === "fiesta") {
+    if (["dress", "blouse", "skirt", "shoe", "bag"].includes(type)) score += 12;
+    if (category === "accessory") score += 4;
+    if (["hoodie"].includes(type)) score -= 8;
+  }
+
+  if (occasion === "romantico") {
+    if (["dress", "blouse", "skirt", "shoe", "bag"].includes(type)) score += 11;
+    if (category === "accessory") score += 4;
+  }
+
+  if (occasion === "deportivo") {
+    if (["hoodie", "t-shirt", "shorts", "shoe"].includes(type)) score += 12;
+    if (["dress", "blazer", "bag"].includes(type)) score -= 8;
+  }
+
+  /* =========================
+     CLIMA
+  ========================= */
+  if (weather === "sunny") {
+    if (["dress", "t-shirt", "shirt", "blouse", "shorts", "skirt"].includes(type)) score += 7;
+    if (["jacket", "coat", "outerwear"].includes(type)) score -= 8;
+  }
+
+  if (weather === "cloudy") {
+    if (["jacket", "cardigan", "outerwear"].includes(type)) score += 5;
+  }
+
+  if (weather === "cold") {
+    if (["jacket", "coat", "outerwear", "hoodie"].includes(type)) score += 13;
+    if (["shorts", "skirt"].includes(type)) score -= 10;
+  }
+
+  if (weather === "rainy") {
+    if (["jacket", "coat", "outerwear", "shoe"].includes(type)) score += 10;
+    if (["shorts"].includes(type)) score -= 7;
+  }
+
+  /* =========================
+     ESTILO
+  ========================= */
+  if (style === "minimal") {
+    if (
+      ["shirt", "blouse", "pants", "dress", "jacket", "shoe"].includes(type)
+    ) {
+      score += 5;
+    }
+    if (["hat"].includes(type)) score -= 2;
+  }
+
+  if (style === "boho") {
+    if (["dress", "skirt", "bag", "hat", "blouse"].includes(type)) {
+      score += 6;
+    }
+  }
+
+  if (style === "clasico") {
+    if (["shirt", "blouse", "pants", "jacket", "dress"].includes(type)) {
+      score += 5;
+    }
+  }
+
+  if (style === "elegante") {
+    if (["dress", "blouse", "jacket", "shoe", "bag"].includes(type)) {
+      score += 6;
+    }
+  }
+
+  if (style === "moderno") {
+    if (["jacket", "dress", "pants", "shoe"].includes(type)) {
+      score += 4;
+    }
+  }
+
+  if (Array.isArray(context.favoriteColors) && context.favoriteColors.includes(color)) {
+    score += 5;
+  }
+
+  if (Array.isArray(context.dislikedColors) && context.dislikedColors.includes(color)) {
+    score -= 6;
+  }
+
+  return score;
+}
+
+function dedupeById(items) {
+  const seen = new Set();
+  const result = [];
+
+  for (const item of items) {
+    if (!item || seen.has(item.id)) continue;
+    seen.add(item.id);
+    result.push(item);
+  }
+
+  return result;
+}
+
+function addBestOptionalPieces(basePieces, grouped, context) {
+  const weather = normalizeWeather(context.weather);
+  const occasion = normalizeOccasion(context.occasion);
+  const style = normalizeDressCode(context.dressCode);
+
+  const pieces = [...basePieces];
+  const usedIds = new Set(basePieces.map((p) => p.id));
 
   const scoredOuterwear = grouped.outerwear
+    .filter((item) => !usedIds.has(item.id))
     .map((item) => ({ ...item, _score: scoreClothing(item, context) }))
     .sort((a, b) => b._score - a._score);
 
   const scoredAccessories = grouped.accessories
+    .filter((item) => !usedIds.has(item.id))
     .map((item) => ({ ...item, _score: scoreClothing(item, context) }))
     .sort((a, b) => b._score - a._score);
 
-  const pieces = [...basePieces];
-
-  if (["frio", "lluvia", "nublado"].includes(weather) && scoredOuterwear.length) {
+  if (
+    ["cold", "rainy", "cloudy"].includes(weather) &&
+    scoredOuterwear.length
+  ) {
     pieces.push(scoredOuterwear[0]);
+    usedIds.add(scoredOuterwear[0].id);
   }
 
-  if (scoredAccessories.length) {
-    pieces.push(scoredAccessories[0]);
+  const shouldAddAccessory =
+    ["fiesta", "romantico"].includes(occasion) ||
+    ["boho", "elegante"].includes(style);
+
+  if (shouldAddAccessory && scoredAccessories.length) {
+    const bestAccessory = scoredAccessories.find((a) => !usedIds.has(a.id));
+    if (bestAccessory) {
+      pieces.push(bestAccessory);
+      usedIds.add(bestAccessory.id);
+    }
   }
 
-  return pieces;
+  return dedupeById(pieces);
 }
 
 function explainOutfit(outfit, context) {
+  const occasion = normalizeOccasion(context.occasion);
   const weather = normalizeWeather(context.weather);
-  const occasion = safeLower(context.occasion);
+  const style = normalizeDressCode(context.dressCode);
 
-  const hasOuterwear = outfit.pieces.some((p) => p.category === "outerwear");
-  const hasAccessory = outfit.pieces.some((p) => p.category === "accessory");
-  const dominantTypes = outfit.pieces.map((p) => p.type).filter(Boolean).slice(0, 3);
+  const pieces = outfit.pieces || [];
+  const hasOuterwear = pieces.some((p) => p.category === "outerwear");
+  const hasAccessory = pieces.some((p) => p.category === "accessory");
 
-  const parts = [];
+  const reasons = [];
 
-  if (occasion) parts.push(`pensado para una ocasión ${occasion}`);
-  if (weather) parts.push(`adecuado para clima ${weather}`);
-  if (hasOuterwear) parts.push("incluye una capa extra para mayor comodidad");
-  if (hasAccessory) parts.push("añade un accesorio para completar el look");
-  if (dominantTypes.length) parts.push(`usa piezas como ${dominantTypes.join(", ")}`);
+  if (occasion) reasons.push(`pensado para una ocasión ${occasion}`);
+  if (style) reasons.push(`con una vibra ${style}`);
+  if (weather) reasons.push(`adaptado a clima ${weather}`);
+  if (hasOuterwear) reasons.push("incluye una capa extra");
+  if (hasAccessory) reasons.push("añade un accesorio para completar el look");
 
-  return parts.join(", ") + ".";
+  return reasons.join(", ") + ".";
 }
 
 function normalizePieceForResponse(piece, base) {
@@ -242,76 +348,124 @@ function buildOutfitOptions(grouped, context, base) {
       .sort((a, b) => b._score - a._score),
   };
 
-  const outfits = [];
+  const outfitCandidates = [];
 
-  if (scored.dresses.length && scored.shoes.length) {
-    const basePieces = [scored.dresses[0], scored.shoes[0]];
-    const fullPieces = addOptionalPieces(basePieces, grouped, context);
-    const score =
-      fullPieces.reduce((acc, p) => acc + (p._score || 0), 0) +
-      sumPairColorScore(fullPieces);
+  /* =========================
+     LOOK CON VESTIDO
+  ========================= */
+  if (scored.dresses.length) {
+    const maxShoes = Math.min(2, scored.shoes.length || 1);
 
-    outfits.push({
-      type: "dress",
-      score,
-      pieces: fullPieces,
-    });
-  }
-
-  if (scored.tops.length && scored.bottoms.length && scored.shoes.length) {
-    const combos = [];
-
-    for (let i = 0; i < Math.min(3, scored.tops.length); i++) {
-      for (let j = 0; j < Math.min(3, scored.bottoms.length); j++) {
-        for (let k = 0; k < Math.min(2, scored.shoes.length); k++) {
-          const basePieces = [scored.tops[i], scored.bottoms[j], scored.shoes[k]];
-          const fullPieces = addOptionalPieces(basePieces, grouped, context);
+    for (let i = 0; i < Math.min(3, scored.dresses.length); i++) {
+      if (scored.shoes.length) {
+        for (let j = 0; j < maxShoes; j++) {
+          const basePieces = [scored.dresses[i], scored.shoes[j]];
+          const fullPieces = addBestOptionalPieces(basePieces, grouped, context);
 
           const score =
             fullPieces.reduce((acc, p) => acc + (p._score || 0), 0) +
             sumPairColorScore(fullPieces);
 
-          combos.push({
+          outfitCandidates.push({
+            type: "dress",
+            score,
+            pieces: dedupeById(fullPieces),
+          });
+        }
+      } else {
+        const basePieces = [scored.dresses[i]];
+        const fullPieces = addBestOptionalPieces(basePieces, grouped, context);
+
+        const score =
+          fullPieces.reduce((acc, p) => acc + (p._score || 0), 0) +
+          sumPairColorScore(fullPieces);
+
+        outfitCandidates.push({
+          type: "dress",
+          score,
+          pieces: dedupeById(fullPieces),
+        });
+      }
+    }
+  }
+
+  /* =========================
+     LOOK TOP + BOTTOM + SHOES
+  ========================= */
+  if (scored.tops.length && scored.bottoms.length) {
+    const topLimit = Math.min(3, scored.tops.length);
+    const bottomLimit = Math.min(3, scored.bottoms.length);
+    const shoeLimit = Math.min(2, scored.shoes.length || 1);
+
+    for (let i = 0; i < topLimit; i++) {
+      for (let j = 0; j < bottomLimit; j++) {
+        if (scored.tops[i].id === scored.bottoms[j].id) continue;
+
+        if (scored.shoes.length) {
+          for (let k = 0; k < shoeLimit; k++) {
+            const shoe = scored.shoes[k];
+            if ([scored.tops[i].id, scored.bottoms[j].id].includes(shoe.id)) continue;
+
+            const basePieces = [scored.tops[i], scored.bottoms[j], shoe];
+            const fullPieces = addBestOptionalPieces(basePieces, grouped, context);
+
+            const score =
+              fullPieces.reduce((acc, p) => acc + (p._score || 0), 0) +
+              sumPairColorScore(fullPieces);
+
+            outfitCandidates.push({
+              type: "separates",
+              score,
+              pieces: dedupeById(fullPieces),
+            });
+          }
+        } else {
+          const basePieces = [scored.tops[i], scored.bottoms[j]];
+          const fullPieces = addBestOptionalPieces(basePieces, grouped, context);
+
+          const score =
+            fullPieces.reduce((acc, p) => acc + (p._score || 0), 0) +
+            sumPairColorScore(fullPieces);
+
+          outfitCandidates.push({
             type: "separates",
             score,
-            pieces: fullPieces,
+            pieces: dedupeById(fullPieces),
           });
         }
       }
     }
-
-    combos.sort((a, b) => b.score - a.score);
-    outfits.push(...combos.slice(0, 4));
   }
 
+  /* =========================
+     DEDUPE POR COMBINACIÓN
+  ========================= */
   const unique = [];
   const seen = new Set();
 
-  for (const outfit of outfits.sort((a, b) => b.score - a.score)) {
+  for (const outfit of outfitCandidates.sort((a, b) => b.score - a.score)) {
     const key = outfit.pieces
       .map((p) => p.id)
       .sort((a, b) => a - b)
       .join("-");
 
-    if (!seen.has(key)) {
-      seen.add(key);
+    if (seen.has(key)) continue;
+    seen.add(key);
 
-      const normalizedPieces = outfit.pieces.map((p) =>
-        normalizePieceForResponse(p, base)
-      );
-
-      unique.push({
-        type: outfit.type,
-        score: outfit.score,
-        reason: explainOutfit(outfit, context),
-        pieces: normalizedPieces,
-        items: normalizedPieces,
-      });
-    }
+    unique.push({
+      type: outfit.type,
+      score: Math.round(outfit.score * 100) / 100,
+      reason: explainOutfit(outfit, context),
+      pieces: outfit.pieces.map((p) => normalizePieceForResponse(p, base)),
+    });
   }
 
-  return unique.slice(0, 3);
+  return unique.slice(0, 5);
 }
+
+/* =========================================================
+   ROUTES
+========================================================= */
 
 router.post("/generate", async (req, res) => {
   try {
@@ -319,6 +473,7 @@ router.post("/generate", async (req, res) => {
       userId,
       occasion,
       weather,
+      dressCode,
       favoriteColors = [],
       dislikedColors = [],
     } = req.body;
@@ -349,6 +504,7 @@ router.post("/generate", async (req, res) => {
       {
         occasion,
         weather,
+        dressCode,
         favoriteColors: favoriteColors.map(safeLower),
         dislikedColors: dislikedColors.map(safeLower),
       },
@@ -378,26 +534,18 @@ router.post("/", async (req, res) => {
       dressCode,
       weather,
       collectionId,
-      prendaIds,
       itemIds,
+      prendaIds,
     } = req.body;
 
-    const rawIds = Array.isArray(prendaIds) ? prendaIds : itemIds;
-
-    const ids = Array.isArray(rawIds)
-      ? rawIds
-          .map((id) => Number(id))
-          .filter((id) => Number.isInteger(id) && id > 0)
+    const idsRaw = Array.isArray(itemIds) && itemIds.length ? itemIds : prendaIds;
+    const ids = Array.isArray(idsRaw)
+      ? [...new Set(idsRaw.map((id) => Number(id)).filter((id) => Number.isInteger(id)))]
       : [];
 
-    if (!userId || ids.length === 0) {
+    if (!userId || !ids.length) {
       return res.status(400).json({
         error: "Faltan datos para guardar el outfit",
-        received: {
-          userId,
-          prendaIds,
-          itemIds,
-        },
       });
     }
 
@@ -453,6 +601,11 @@ router.post("/", async (req, res) => {
   }
 });
 
+/**
+ * IMPORTANTE:
+ * tu front manda el archivo en el campo "image"
+ * por eso aquí debe ser upload.single("image")
+ */
 router.post("/:id/photo", upload.single("image"), async (req, res) => {
   try {
     const { id } = req.params;
@@ -541,27 +694,33 @@ router.get("/user/:userId", async (req, res) => {
       },
     });
 
-    const normalized = outfits.map((outfit) => ({
-      ...outfit,
-      photoUrl: outfit.photos?.[0]?.url
-        ? outfit.photos[0].url.startsWith("http")
-          ? outfit.photos[0].url
-          : `${base}${outfit.photos[0].url}`
-        : null,
-      items: outfit.items.map((item) => ({
-        ...item,
-        prenda: {
-          ...item.prenda,
-          imageUrl: item.prenda.imageUrl.startsWith("http")
-            ? item.prenda.imageUrl
-            : `${base}${item.prenda.imageUrl}`,
-        },
-      })),
-      photos: outfit.photos.map((photo) => ({
-        ...photo,
-        url: photo.url.startsWith("http") ? photo.url : `${base}${photo.url}`,
-      })),
-    }));
+    const normalized = outfits.map((outfit) => {
+      const latestPhoto = outfit.photos?.length
+        ? outfit.photos[outfit.photos.length - 1]
+        : null;
+
+      return {
+        ...outfit,
+        photoUrl: latestPhoto
+          ? latestPhoto.url.startsWith("http")
+            ? latestPhoto.url
+            : `${base}${latestPhoto.url}`
+          : null,
+        items: outfit.items.map((item) => ({
+          ...item,
+          prenda: {
+            ...item.prenda,
+            imageUrl: item.prenda.imageUrl.startsWith("http")
+              ? item.prenda.imageUrl
+              : `${base}${item.prenda.imageUrl}`,
+          },
+        })),
+        photos: outfit.photos.map((photo) => ({
+          ...photo,
+          url: photo.url.startsWith("http") ? photo.url : `${base}${photo.url}`,
+        })),
+      };
+    });
 
     return res.json(normalized);
   } catch (error) {

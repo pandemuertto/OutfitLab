@@ -1,0 +1,12 @@
+venv/
+__pycache__/
+*.pyc
+
+outputs/
+outputs_fast/
+
+*.pth
+*.pt
+*.onnx
+
+.env

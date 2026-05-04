@@ -766,20 +766,20 @@ export default function LoginScreen() {
                 </Pressable>
               </View>
 
-              <View style={styles.dividerContainer}>
+              {/* <View style={styles.dividerContainer}>
                 <View style={styles.dividerLine} />
                 <Text style={styles.dividerText}>O continuar con</Text>
                 <View style={styles.dividerLine} />
-              </View>
+              </View> */}
 
-              <Pressable
+              {/* <Pressable
                 style={styles.socialButton}
                 onPress={handleGoogle}
                 disabled={!gRequest || sending}
               >
                 <Ionicons name="logo-google" size={20} color="#DB4437" />
                 <Text style={styles.socialButtonText}>Google</Text>
-              </Pressable>
+              </Pressable> */}
 
               <View style={styles.bottomRow}>
                 <Text style={styles.bottomText}>¿No tienes una cuenta? </Text>

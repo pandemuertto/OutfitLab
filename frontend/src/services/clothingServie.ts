@@ -1,4 +1,4 @@
-//frontend/src/services/clothingServie.ts
+// frontend/src/services/clothingServie.ts
 import { api, API_URL } from "../api";
 
 export interface Prenda {
@@ -33,6 +33,13 @@ export interface UploadResult {
   detections: Detection[];
 }
 
+export interface UpdatePrendaPayload {
+  type?: string;
+  color?: string;
+  category?: string;
+  brand?: string;
+}
+
 export async function uploadClothing(
   userId: string,
   imageUri: string,
@@ -41,6 +48,7 @@ export async function uploadClothing(
   const formData = new FormData();
 
   formData.append("userId", userId);
+
   if (metadata?.color) formData.append("color", metadata.color);
   if (metadata?.brand) formData.append("brand", metadata.brand);
   if (metadata?.type) formData.append("type", metadata.type);
@@ -50,6 +58,7 @@ export async function uploadClothing(
   const ext = match?.[1]?.toLowerCase() || "jpg";
 
   let mime = "image/jpeg";
+
   if (ext === "png") mime = "image/png";
   if (ext === "webp") mime = "image/webp";
   if (ext === "heic" || ext === "heif") mime = "image/jpeg";
@@ -76,5 +85,21 @@ export async function uploadClothing(
 
 export async function getUserClothes(userId: string): Promise<Prenda[]> {
   const r = await api.get(`/api/clothes/user/${userId}`);
+
   return Array.isArray(r.data) ? r.data : r.data?.prendas || [];
+}
+
+export async function updateClothing(
+  clothingId: string,
+  payload: UpdatePrendaPayload
+): Promise<Prenda> {
+  const { data } = await api.patch(`/api/clothes/${clothingId}`, payload);
+
+  return data?.prenda || data?.item || data;
+}
+
+export async function deleteClothing(clothingId: string): Promise<any> {
+  const { data } = await api.delete(`/api/clothes/${clothingId}`);
+
+  return data;
 }
