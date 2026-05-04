@@ -478,6 +478,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import * as ImagePicker from "expo-image-picker";
 import { useFocusEffect } from "expo-router";
 
+import { API_URL } from "../../src/api";
 import { useAuth } from "../../src/contexts/auth";
 import {
   getUserClothes,
@@ -553,6 +554,22 @@ function normalizeText(value?: string | null) {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .trim();
+}
+
+function getImageUrl(rawUrl?: string | null) {
+  if (!rawUrl) return null;
+
+  const cleanUrl = String(rawUrl).trim();
+
+  if (!cleanUrl) return null;
+
+  if (cleanUrl.startsWith("http://") || cleanUrl.startsWith("https://")) {
+    return cleanUrl;
+  }
+
+  const cleanPath = cleanUrl.startsWith("/") ? cleanUrl : `/${cleanUrl}`;
+
+  return `${API_URL}${cleanPath}`;
 }
 
 function getSearchTextForItem(item: ClothingItem) {
@@ -647,8 +664,23 @@ export default function ArmarioScreen() {
     try {
       const clothes = await getUserClothes(String(user.id));
 
-      setAllClothes(clothes);
-      applyFilters(selectedCategory, searchText, clothes);
+      const normalizedClothes = clothes.map((item) => ({
+        ...item,
+        imageUrl: getImageUrl(item.imageUrl) || item.imageUrl,
+      }));
+
+      console.log(
+        "👕 Prendas cargadas:",
+        normalizedClothes.map((item) => ({
+          id: item.id,
+          imageUrl: item.imageUrl,
+          type: item.type,
+          category: item.category,
+        }))
+      );
+
+      setAllClothes(normalizedClothes);
+      applyFilters(selectedCategory, searchText, normalizedClothes);
     } catch (error) {
       console.error("Error cargando prendas:", error);
       Alert.alert("Error", "No se pudieron cargar las prendas");
@@ -985,15 +1017,36 @@ export default function ArmarioScreen() {
     const imageHeight =
       viewMode === "masonry" ? (index % 2 === 0 ? 190 : 155) : 170;
 
+    const imageUri = getImageUrl(item.imageUrl);
+
     return (
       <View style={styles.itemWrapper}>
         <View style={styles.itemCard}>
           <View>
-            <Image
-              source={{ uri: item.imageUrl }}
-              style={[styles.itemImage, { height: imageHeight }]}
-              resizeMode="cover"
-            />
+            {imageUri ? (
+              <Image
+                source={{ uri: imageUri }}
+                style={[styles.itemImage, { height: imageHeight }]}
+                resizeMode="cover"
+                onError={(error) => {
+                  console.log("❌ Error cargando imagen:", {
+                    id: item.id,
+                    imageUri,
+                    nativeEvent: error.nativeEvent,
+                  });
+                }}
+              />
+            ) : (
+              <View
+                style={[
+                  styles.itemImage,
+                  styles.imagePlaceholder,
+                  { height: imageHeight },
+                ]}
+              >
+                <Ionicons name="image-outline" size={32} color="#9CA3AF" />
+              </View>
+            )}
 
             <Pressable
               onPress={() => showItemOptions(item)}
@@ -1051,6 +1104,8 @@ export default function ArmarioScreen() {
       </View>
     );
   };
+
+  const selectedItemImageUri = getImageUrl(selectedItem?.imageUrl);
 
   return (
     <View style={styles.container}>
@@ -1269,11 +1324,17 @@ export default function ArmarioScreen() {
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
             >
-              {selectedItem?.imageUrl ? (
+              {selectedItemImageUri ? (
                 <Image
-                  source={{ uri: selectedItem.imageUrl }}
+                  source={{ uri: selectedItemImageUri }}
                   style={styles.editPreviewImage}
                   resizeMode="cover"
+                  onError={(error) => {
+                    console.log("❌ Error cargando imagen preview:", {
+                      selectedItemImageUri,
+                      nativeEvent: error.nativeEvent,
+                    });
+                  }}
                 />
               ) : null}
 
@@ -1570,6 +1631,11 @@ const styles = StyleSheet.create({
   itemImage: {
     width: "100%",
     backgroundColor: "#E5E7EB",
+  },
+
+  imagePlaceholder: {
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   itemMenuButton: {
