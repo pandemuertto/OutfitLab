@@ -1,5 +1,7 @@
 import io
+import os
 import json
+import uuid
 import logging
 from pathlib import Path
 
@@ -13,16 +15,10 @@ from rembg import remove
 logging.basicConfig(level=logging.INFO, format="%(levelname)s │ %(message)s")
 log = logging.getLogger("outfitlab-fast")
 
-# Carpeta donde se guardan los recortes / imágenes sin fondo
 OUTPUT_DIR = Path("outputs_fast")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="OutfitLab Fast Segmentation")
-
-# Servir públicamente los archivos generados
-# Ejemplo:
-# https://closi-ai.onrender.com/outputs_fast/archivo.png
-app.mount("/outputs_fast", StaticFiles(directory=str(OUTPUT_DIR)), name="outputs_fast")
 
 app.add_middleware(
     CORSMiddleware,
@@ -31,33 +27,63 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Servir públicamente las imágenes generadas.
+# Ejemplo:
+# https://closi-ai.onrender.com/outputs_fast/archivo.png
+app.mount("/outputs_fast", StaticFiles(directory=str(OUTPUT_DIR)), name="outputs_fast")
 
-def clamp_bbox(box, width, height, padding_ratio=0.05):
+
+def safe_label(label: str):
+    return "".join(
+        c for c in str(label).lower().replace(" ", "_")
+        if c.isalnum() or c == "_"
+    ) or "prenda"
+
+
+def clamp_bbox(box, width, height, padding_ratio=0.08):
     """
-    Convierte el bbox relativo a coordenadas reales de la imagen.
-    Espera un bbox con:
-    {
-        "x": 0.1,
-        "y": 0.2,
-        "width": 0.5,
-        "height": 0.6
-    }
+    Soporta bbox relativo:
+      { x: 0.1, y: 0.2, width: 0.5, height: 0.6 }
+
+    Y bbox en pixeles:
+      { x: 100, y: 200, width: 500, height: 600 }
     """
-    x = max(0, int((box.get("x", 0)) * width))
-    y = max(0, int((box.get("y", 0)) * height))
-    w = max(1, int((box.get("width", 0)) * width))
-    h = max(1, int((box.get("height", 0)) * height))
+
+    raw_x = float(box.get("x", 0) or 0)
+    raw_y = float(box.get("y", 0) or 0)
+    raw_w = float(box.get("width", 0) or 0)
+    raw_h = float(box.get("height", 0) or 0)
+
+    # Si todos los valores principales son <= 1.5, asumimos que son relativos.
+    values_are_relative = raw_x <= 1.5 and raw_y <= 1.5 and raw_w <= 1.5 and raw_h <= 1.5
+
+    if values_are_relative:
+        x = int(raw_x * width)
+        y = int(raw_y * height)
+        w = int(raw_w * width)
+        h = int(raw_h * height)
+    else:
+        x = int(raw_x)
+        y = int(raw_y)
+        w = int(raw_w)
+        h = int(raw_h)
+
+    x = max(0, x)
+    y = max(0, y)
+    w = max(1, w)
+    h = max(1, h)
 
     pad_x = int(w * padding_ratio)
     pad_y = int(h * padding_ratio)
 
     x = max(0, x - pad_x)
     y = max(0, y - pad_y)
-    w = min(width - x, w + pad_x * 2)
-    h = min(height - y, h + pad_y * 2)
+    w = w + pad_x * 2
+    h = h + pad_y * 2
 
     if x >= width:
         x = width - 1
+
     if y >= height:
         y = height - 1
 
@@ -67,20 +93,7 @@ def clamp_bbox(box, width, height, padding_ratio=0.05):
     return x, y, w, h
 
 
-def safe_label(label: str):
-    """
-    Limpia la etiqueta para usarla como nombre de archivo.
-    """
-    return "".join(
-        c for c in label.lower().replace(" ", "_")
-        if c.isalnum() or c == "_"
-    )
-
-
 def alpha_coverage(img_rgba: Image.Image):
-    """
-    Calcula cuánto contenido visible quedó después de quitar fondo.
-    """
     arr = np.array(img_rgba)
 
     if arr.shape[-1] != 4:
@@ -94,9 +107,6 @@ def alpha_coverage(img_rgba: Image.Image):
 
 
 def white_background_ratio(img_rgb: Image.Image):
-    """
-    Calcula qué tanto fondo blanco tiene la imagen original.
-    """
     arr = np.array(img_rgb.convert("RGB"))
 
     bright = np.sum(
@@ -108,6 +118,21 @@ def white_background_ratio(img_rgb: Image.Image):
     total = arr.shape[0] * arr.shape[1]
 
     return bright / max(total, 1)
+
+
+def get_public_base_url(request: Request):
+    """
+    En Render conviene configurar:
+    PUBLIC_AI_URL=https://closi-ai.onrender.com
+
+    Si no existe, usamos request.base_url.
+    """
+    env_url = os.environ.get("PUBLIC_AI_URL", "").strip().rstrip("/")
+
+    if env_url:
+        return env_url
+
+    return str(request.base_url).rstrip("/")
 
 
 @app.get("/")
@@ -123,8 +148,9 @@ async def root():
 async def health():
     return {
         "status": "ok",
-        "mode": "fast-bbox-hybrid",
+        "mode": "bbox-rembg-segmentation",
         "output_dir": str(OUTPUT_DIR.resolve()),
+        "public_ai_url": os.environ.get("PUBLIC_AI_URL", None),
     }
 
 
@@ -135,16 +161,6 @@ async def segment_crop(
     bbox: str = Form(...),
     label: str = Form("prenda"),
 ):
-    """
-    Recibe:
-    - file: imagen
-    - bbox: coordenadas de la prenda en JSON string
-    - label: etiqueta/nombre de la prenda
-
-    Devuelve:
-    - file_url: URL pública para que la app pueda mostrar la imagen
-    """
-
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(
             status_code=422,
@@ -170,6 +186,11 @@ async def segment_crop(
     height, width = img_rgb.shape[:2]
 
     x, y, w, h = clamp_bbox(bbox_data, width, height)
+
+    log.info("📦 Imagen original: width=%s height=%s", width, height)
+    log.info("📦 BBox recibido: %s", bbox_data)
+    log.info("📦 BBox final: x=%s y=%s w=%s h=%s", x, y, w, h)
+
     crop_rgb = img_rgb[y:y + h, x:x + w]
 
     if crop_rgb.size == 0:
@@ -177,18 +198,19 @@ async def segment_crop(
 
     crop_pil = Image.fromarray(crop_rgb).convert("RGB")
     clean_label = safe_label(label)
+    unique_id = uuid.uuid4().hex[:10]
 
     # Guardar crop normal
-    crop_filename = f"{clean_label}_{x}_{y}_{w}_{h}_crop.png"
+    crop_filename = f"{clean_label}_{unique_id}_crop.png"
     crop_path = OUTPUT_DIR / crop_filename
     crop_pil.save(crop_path)
 
-    # Por defecto usamos el crop normal
     selected_path = crop_path
     selected_mode = "crop"
     alpha_ratio = None
+    white_ratio = None
 
-    # Intentar quitar fondo con rembg
+    # Intentar quitar fondo
     try:
         buffer = io.BytesIO()
         crop_pil.save(buffer, format="PNG")
@@ -200,7 +222,7 @@ async def segment_crop(
         alpha_ratio = alpha_coverage(rembg_img)
         white_ratio = white_background_ratio(crop_pil)
 
-        rembg_filename = f"{clean_label}_{x}_{y}_{w}_{h}_nobg.png"
+        rembg_filename = f"{clean_label}_{unique_id}_nobg.png"
         rembg_path = OUTPUT_DIR / rembg_filename
         rembg_img.save(rembg_path)
 
@@ -211,24 +233,21 @@ async def segment_crop(
             white_ratio
         )
 
-        # Regla híbrida:
-        # - Si rembg deja suficiente contenido, usamos imagen sin fondo.
-        # - Si rembg deja casi vacío, usamos crop normal.
-        # - Si el fondo es muy blanco, pedimos más evidencia.
-        if white_ratio > 0.55:
-            if alpha_ratio >= 0.35:
+        # Regla para decidir si usamos rembg o crop normal.
+        # Si rembg deja casi vacío, mejor usamos el crop.
+        if white_ratio is not None and white_ratio > 0.55:
+            if alpha_ratio is not None and alpha_ratio >= 0.30:
                 selected_path = rembg_path
                 selected_mode = "rembg"
         else:
-            if alpha_ratio >= 0.18:
+            if alpha_ratio is not None and alpha_ratio >= 0.15:
                 selected_path = rembg_path
                 selected_mode = "rembg"
 
     except Exception as exc:
         log.warning("rembg falló, se usará crop normal: %s", exc)
 
-    # Crear URL pública del archivo generado
-    base_url = str(request.base_url).rstrip("/")
+    base_url = get_public_base_url(request)
     file_url = f"{base_url}/outputs_fast/{selected_path.name}"
 
     log.info("✅ Segmento final guardado: %s (%s)", selected_path.name, selected_mode)
@@ -240,8 +259,10 @@ async def segment_crop(
         "file_path": str(selected_path.resolve()),
         "file_url": file_url,
         "imageUrl": file_url,
+        "url": file_url,
         "mode": selected_mode,
         "alpha_ratio": alpha_ratio,
+        "white_ratio": white_ratio,
         "crop": {
             "x": x,
             "y": y,
@@ -254,9 +275,11 @@ async def segment_crop(
 if __name__ == "__main__":
     import uvicorn
 
+    port = int(os.environ.get("PORT", 8000))
+
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
-        port=8000,
+        port=port,
         reload=False
     )

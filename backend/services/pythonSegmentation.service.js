@@ -3,26 +3,21 @@
 const fs = require("fs/promises");
 const path = require("path");
 
-// URL de la API Python.
-// Local:
-// PYTHON_AI_URL=http://localhost:8000
-//
-// Render:
-// PYTHON_AI_URL=https://closi-ai.onrender.com
-const PYTHON_AI_URL = (process.env.PYTHON_AI_URL || "http://localhost:8000").replace(/\/$/, "");
+const PYTHON_AI_URL = (
+  process.env.PYTHON_AI_URL || "http://localhost:8000"
+).replace(/\/$/, "");
 
-// Activar o desactivar segmentación con Python.
-// USE_PYTHON_SEGMENTATION=true
 function isPythonSegmentationEnabled() {
-  return String(process.env.USE_PYTHON_SEGMENTATION || "false").toLowerCase() === "true";
+  return (
+    String(process.env.USE_PYTHON_SEGMENTATION || "")
+      .trim()
+      .toLowerCase() === "true"
+  );
 }
 
 function normalizeBbox(bbox) {
-  if (!bbox) {
-    return null;
-  }
+  if (!bbox) return null;
 
-  // Si ya viene como string JSON, lo dejamos pasar.
   if (typeof bbox === "string") {
     try {
       JSON.parse(bbox);
@@ -32,7 +27,6 @@ function normalizeBbox(bbox) {
     }
   }
 
-  // Si viene como objeto, lo convertimos a string JSON.
   if (typeof bbox === "object") {
     return JSON.stringify(bbox);
   }
@@ -40,66 +34,50 @@ function normalizeBbox(bbox) {
   return null;
 }
 
-async function filePathToBlob(filePath) {
-  const buffer = await fs.readFile(filePath);
-
+function getMimeType(filePath) {
   const ext = path.extname(filePath).toLowerCase();
 
-  let mimeType = "image/jpeg";
+  if (ext === ".png") return "image/png";
+  if (ext === ".webp") return "image/webp";
+  if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
 
-  if (ext === ".png") {
-    mimeType = "image/png";
-  } else if (ext === ".webp") {
-    mimeType = "image/webp";
-  } else if (ext === ".jpg" || ext === ".jpeg") {
-    mimeType = "image/jpeg";
-  }
+  return "image/jpeg";
+}
+
+async function filePathToBlob(filePath) {
+  const buffer = await fs.readFile(filePath);
+  const mimeType = getMimeType(filePath);
 
   return new Blob([buffer], { type: mimeType });
 }
 
-/**
- * Segmenta una prenda usando la API Python.
- *
- * Parámetros esperados:
- * {
- *   imagePath: "ruta/local/del/archivo.jpg",
- *   bbox: { x, y, width, height },
- *   label: "vestido"
- * }
- *
- * Retorna:
- * {
- *   success: true,
- *   imageUrl: "https://closi-ai.onrender.com/outputs_fast/archivo.png",
- *   file_url: "...",
- *   ...
- * }
- */
-async function segmentCrop({ imagePath, bbox, label = "prenda" }) {
+async function segmentClothesWithPythonCrop(imagePath, bbox, label = "prenda") {
   if (!isPythonSegmentationEnabled()) {
+    console.log("🐍 Segmentación Python desactivada por variable de entorno.");
+
     return {
       success: false,
       skipped: true,
-      reason: "USE_PYTHON_SEGMENTATION no está activo",
+      reason: "USE_PYTHON_SEGMENTATION no está en true",
     };
   }
 
   if (!imagePath) {
-    throw new Error("No se recibió imagePath para segmentar con Python.");
+    throw new Error("No se recibió imagePath para segmentación Python.");
   }
 
   const bboxJson = normalizeBbox(bbox);
 
   if (!bboxJson) {
-    throw new Error("No se recibió un bbox válido para segmentar con Python.");
+    throw new Error("No se recibió bbox válido para segmentación Python.");
   }
 
   const endpoint = `${PYTHON_AI_URL}/segment-crop`;
 
   console.log("🐍 Enviando imagen a Python:", endpoint);
-  console.log("📦 BBox:", bboxJson);
-  console.log("🏷️ Label:", label);
+  console.log("🐍 imagePath:", imagePath);
+  console.log("🐍 bbox:", bboxJson);
+  console.log("🐍 label:", label);
 
   const fileBlob = await filePathToBlob(imagePath);
   const filename = path.basename(imagePath);
@@ -114,28 +92,36 @@ async function segmentCrop({ imagePath, bbox, label = "prenda" }) {
     body: formData,
   });
 
+  const text = await response.text();
+
   let data;
 
   try {
-    data = await response.json();
+    data = JSON.parse(text);
   } catch {
-    const text = await response.text();
-    throw new Error(`Python respondió algo inválido: ${text}`);
+    throw new Error(`Python respondió algo que no es JSON: ${text}`);
   }
 
   if (!response.ok) {
-    console.error("❌ Error desde Python:", data);
-    throw new Error(data?.detail || "Error al segmentar con Python.");
+    console.error("❌ Python respondió error:", data);
+    throw new Error(data?.detail || data?.error || "Error en API Python.");
   }
 
   const imageUrl =
-    data.file_url ||
     data.imageUrl ||
+    data.file_url ||
     data.url ||
     null;
 
+  console.log("✅ Python crop OK:", {
+    file: data.file,
+    imageUrl,
+    file_url: data.file_url,
+    mode: data.mode,
+  });
+
   if (!imageUrl) {
-    console.warn("⚠️ Python no devolvió file_url. Respuesta:", data);
+    throw new Error("Python no devolvió imageUrl/file_url pública.");
   }
 
   return {
@@ -143,13 +129,19 @@ async function segmentCrop({ imagePath, bbox, label = "prenda" }) {
     success: true,
     imageUrl,
     file_url: imageUrl,
+    url: imageUrl,
   };
 }
 
-/**
- * Alias por si tu backend ya usa otro nombre.
- * Así evitamos romper rutas existentes.
- */
+// Alias por compatibilidad
+async function segmentCrop(params) {
+  return segmentClothesWithPythonCrop(
+    params.imagePath,
+    params.bbox,
+    params.label
+  );
+}
+
 async function segmentWithPython(params) {
   return segmentCrop(params);
 }
@@ -165,6 +157,7 @@ async function pythonSegmentCrop(params) {
 module.exports = {
   PYTHON_AI_URL,
   isPythonSegmentationEnabled,
+  segmentClothesWithPythonCrop,
   segmentCrop,
   segmentWithPython,
   segmentCropWithPython,
