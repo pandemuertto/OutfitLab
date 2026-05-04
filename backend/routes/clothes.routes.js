@@ -7,13 +7,67 @@ const { PrismaClient } = require("@prisma/client");
 const { detectClothesWithApi4AI } = require("../services/api4aiFashion.service");
 const { normalizeClothingLabel } = require("../utils/normalizeClothing");
 const { extractDominantColorFromImage } = require("../services/localColor.service");
-const { importSegmentedFileToUploads } = require("../utils/importSegmentedFile");
 const { segmentClothesWithPythonCrop } = require("../services/pythonSegmentation.service");
 
 const prisma = new PrismaClient();
 const router = Router();
 
 const MIN_CONFIDENCE = 0.65;
+
+function isAbsoluteUrl(url) {
+  return typeof url === "string" && /^https?:\/\//i.test(url);
+}
+
+function makePublicUrl(req, imageUrl) {
+  if (!imageUrl) return imageUrl;
+
+  if (isAbsoluteUrl(imageUrl)) {
+    return imageUrl;
+  }
+
+  const base = `${req.protocol}://${req.get("host")}`;
+  const cleanPath = imageUrl.startsWith("/") ? imageUrl : `/${imageUrl}`;
+
+  return `${base}${cleanPath}`;
+}
+
+function getStoredImageUrlFromPython(pyResult, fallbackUrl) {
+  /*
+    La API Python nueva debe regresar algo así:
+    {
+      file_url: "https://closi-ai.onrender.com/outputs_fast/archivo.png",
+      imageUrl: "https://closi-ai.onrender.com/outputs_fast/archivo.png",
+      file_path: "/opt/render/project/src/outputs_fast/archivo.png"
+    }
+
+    Para la app móvil necesitamos guardar una URL pública,
+    NO file_path, porque file_path es ruta interna del servidor Python.
+  */
+  return (
+    pyResult?.imageUrl ||
+    pyResult?.file_url ||
+    pyResult?.url ||
+    fallbackUrl
+  );
+}
+
+async function safeDeleteLocalImage(imageUrl) {
+  /*
+    Solo intentamos borrar archivos locales del backend.
+    Si imageUrl es https://..., no se borra desde aquí porque pertenece
+    a otro servicio o a un storage externo.
+  */
+  if (!imageUrl || isAbsoluteUrl(imageUrl)) return;
+
+  const cleanRelativePath = imageUrl.replace(/^\/+/, "");
+  const imagePath = path.join(__dirname, "..", cleanRelativePath);
+
+  try {
+    await fs.unlink(imagePath);
+  } catch (e) {
+    console.warn("No se pudo eliminar el archivo local:", e.message);
+  }
+}
 
 router.get("/ping", (_req, res) => {
   res.json({ ok: true, at: new Date().toISOString() });
@@ -39,22 +93,34 @@ router.post("/upload", upload.single("image"), async (req, res) => {
       return res.status(404).json({ error: "Usuario no encontrado" });
     }
 
-    const absoluteImagePath = path.join(__dirname, "..", "uploads", req.file.filename);
+    const absoluteImagePath = path.join(
+      __dirname,
+      "..",
+      "uploads",
+      req.file.filename
+    );
+
     const originalRelativeUrl = `/uploads/${req.file.filename}`;
     const savedItems = [];
-    const usePython = String(process.env.USE_PYTHON_SEGMENTATION).trim() === "true";
+    const usePython =
+      String(process.env.USE_PYTHON_SEGMENTATION || "")
+        .trim()
+        .toLowerCase() === "true";
 
     console.log("[FAST FLOW] imagen:", req.file.filename);
     console.log("[FAST FLOW] python activo:", usePython);
+    console.log("[FAST FLOW] PYTHON_AI_URL:", process.env.PYTHON_AI_URL);
 
-    // 1) API4AI primero
+    // 1) Detectar prendas con API4AI
     const rawDetections = await detectClothesWithApi4AI(absoluteImagePath);
+
     const detections = (rawDetections || []).filter(
       (d) => (d.confidence || 0) >= MIN_CONFIDENCE
     );
 
     console.log("[FAST FLOW] detecciones válidas:", detections.length);
 
+    // 2) Si no hubo detecciones, se guarda la imagen original
     if (!detections.length) {
       let detectedColor = color ? String(color).toLowerCase().trim() : null;
 
@@ -81,11 +147,13 @@ router.post("/upload", upload.single("image"), async (req, res) => {
 
       savedItems.push(prenda);
     } else {
+      // 3) Si hubo detecciones, guardar una prenda por cada detección válida
       for (const detection of detections) {
         const normalized = normalizeClothingLabel(detection.label);
         const rawLabel = String(detection.label || "").toLowerCase();
 
-        const bboxArea = (detection.bbox?.width || 0) * (detection.bbox?.height || 0);
+        const bboxArea =
+          (detection.bbox?.width || 0) * (detection.bbox?.height || 0);
 
         const alwaysAllowAccessories = [
           "hat",
@@ -99,7 +167,7 @@ router.post("/upload", upload.single("image"), async (req, res) => {
           "gorra",
           "bolso",
           "bufanda",
-          "lentes"
+          "lentes",
         ];
 
         const smallAccessoryTypes = [
@@ -108,7 +176,7 @@ router.post("/upload", upload.single("image"), async (req, res) => {
           "jewelry",
           "collar",
           "bracelet",
-          "ring"
+          "ring",
         ];
 
         const isAlwaysAllowed = alwaysAllowAccessories.some((word) =>
@@ -141,6 +209,7 @@ router.post("/upload", upload.single("image"), async (req, res) => {
 
         let finalImageUrl = originalRelativeUrl;
 
+        // 4) Si Python está activo, pedir recorte/segmentación
         if (usePython && detection.bbox) {
           try {
             const pyResult = await segmentClothesWithPythonCrop(
@@ -149,12 +218,25 @@ router.post("/upload", upload.single("image"), async (req, res) => {
               normalized.type || detection.label || "prenda"
             );
 
-            console.log("[FAST FLOW] Python crop OK:", pyResult?.file);
+            console.log("[FAST FLOW] Python crop OK:", {
+              file: pyResult?.file,
+              file_url: pyResult?.file_url,
+              imageUrl: pyResult?.imageUrl,
+              file_path: pyResult?.file_path,
+            });
 
-            if (pyResult?.file_path) {
-              const imported = await importSegmentedFileToUploads(pyResult.file_path);
-              finalImageUrl = imported.relativeUrl;
-            }
+            /*
+              Cambio importante:
+              Antes usabas pyResult.file_path y lo importabas a uploads.
+              Eso no sirve bien cuando Python vive en otro servicio de Render.
+
+              Ahora guardamos pyResult.file_url / pyResult.imageUrl,
+              que debe ser una URL pública de closi-ai.
+            */
+            finalImageUrl = getStoredImageUrlFromPython(
+              pyResult,
+              originalRelativeUrl
+            );
           } catch (pythonError) {
             console.warn(
               "[FAST FLOW] Python crop falló, se usa imagen original:",
@@ -167,14 +249,23 @@ router.post("/upload", upload.single("image"), async (req, res) => {
 
         if (!detectedColor) {
           try {
-            const imageForColor =
-              finalImageUrl === originalRelativeUrl
+            /*
+              Si la imagen final es URL pública de Python, no podemos calcular
+              color desde ruta local del backend. En ese caso usamos la imagen
+              original local y el bbox detectado por API4AI.
+            */
+            const imageForColor = isAbsoluteUrl(finalImageUrl)
+              ? absoluteImagePath
+              : finalImageUrl === originalRelativeUrl
                 ? absoluteImagePath
                 : path.join(__dirname, "..", finalImageUrl.replace(/^\/+/, ""));
 
+            const bboxForColor =
+              imageForColor === absoluteImagePath ? detection.bbox : null;
+
             const localColor = await extractDominantColorFromImage(
               imageForColor,
-              finalImageUrl === originalRelativeUrl ? detection.bbox : null
+              bboxForColor
             );
 
             detectedColor = localColor.colorName;
@@ -199,8 +290,6 @@ router.post("/upload", upload.single("image"), async (req, res) => {
       }
     }
 
-    const base = `${req.protocol}://${req.get("host")}`;
-
     return res.status(201).json({
       success: true,
       message: "Prenda(s) procesada(s) correctamente",
@@ -208,13 +297,12 @@ router.post("/upload", upload.single("image"), async (req, res) => {
       source: "api4ai + python-fast-crop",
       items: savedItems.map((item) => ({
         ...item,
-        imageUrl: item.imageUrl.startsWith("http")
-          ? item.imageUrl
-          : `${base}${item.imageUrl}`,
+        imageUrl: makePublicUrl(req, item.imageUrl),
       })),
     });
   } catch (err) {
     console.error("ERROR GENERAL /upload:", err);
+
     return res.status(500).json({
       error: "No se pudo subir la prenda",
       detail: err.message,
@@ -224,8 +312,6 @@ router.post("/upload", upload.single("image"), async (req, res) => {
 
 router.get("/user/:userId", async (req, res) => {
   try {
-    const base = `${req.protocol}://${req.get("host")}`;
-
     const prendas = await prisma.prenda.findMany({
       where: { userId: req.params.userId },
       orderBy: { createdAt: "desc" },
@@ -233,15 +319,17 @@ router.get("/user/:userId", async (req, res) => {
 
     const prendasConUrl = prendas.map((p) => ({
       ...p,
-      imageUrl: p.imageUrl.startsWith("http")
-        ? p.imageUrl
-        : `${base}${p.imageUrl}`,
+      imageUrl: makePublicUrl(req, p.imageUrl),
     }));
 
     return res.json(prendasConUrl);
   } catch (err) {
     console.error("list error:", err);
-    return res.status(500).json({ error: "No se pudieron obtener las prendas" });
+
+    return res.status(500).json({
+      error: "No se pudieron obtener las prendas",
+      detail: err.message,
+    });
   }
 });
 
@@ -262,25 +350,23 @@ router.delete("/:id", async (req, res) => {
       return res.status(404).json({ error: "Prenda no encontrada" });
     }
 
-    if (prenda.imageUrl && !prenda.imageUrl.startsWith("http")) {
-      const cleanRelativePath = prenda.imageUrl.replace(/^\/+/, "");
-      const imagePath = path.join(__dirname, "..", cleanRelativePath);
-
-      try {
-        await fs.unlink(imagePath);
-      } catch (e) {
-        console.warn("No se pudo eliminar el archivo:", e.message);
-      }
-    }
+    await safeDeleteLocalImage(prenda.imageUrl);
 
     await prisma.prenda.delete({
       where: { id: numericId },
     });
 
-    return res.json({ success: true, message: "Prenda eliminada" });
+    return res.json({
+      success: true,
+      message: "Prenda eliminada",
+    });
   } catch (err) {
     console.error("delete error:", err);
-    return res.status(500).json({ error: "No se pudo eliminar la prenda" });
+
+    return res.status(500).json({
+      error: "No se pudo eliminar la prenda",
+      detail: err.message,
+    });
   }
 });
 

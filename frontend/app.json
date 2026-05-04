@@ -18,7 +18,8 @@
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon.png",
         "backgroundColor": "#E6F4FE"
-      }
+      },
+      "package": "com.pandemuerttoo.outfitlab"
     },
     "web": {
       "favicon": "./assets/images/favicon.png"
@@ -39,6 +40,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "e156ca6b-2c29-4a0b-b4ac-3314ce7c3763"
+      }
     }
   }
 }
