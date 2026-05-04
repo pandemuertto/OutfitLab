@@ -1,3 +1,5 @@
+// backend/routes/clothes.routes.js
+
 const { Router } = require("express");
 const path = require("path");
 const fs = require("fs").promises;
@@ -14,34 +16,64 @@ const router = Router();
 
 const MIN_CONFIDENCE = 0.65;
 
+/* ======================================================
+   Helpers de URL
+====================================================== */
+
 function isAbsoluteUrl(url) {
   return typeof url === "string" && /^https?:\/\//i.test(url);
 }
 
-function makePublicUrl(req, imageUrl) {
-  if (!imageUrl) return imageUrl;
+function getBackendBaseUrl(req) {
+  /*
+    En Render vamos a configurar:
+    PUBLIC_BACKEND_URL=https://closi-backend.onrender.com
 
-  if (isAbsoluteUrl(imageUrl)) {
-    return imageUrl;
+    Así evitamos que por alguna razón Express arme mal la URL.
+  */
+  const envUrl =
+    process.env.PUBLIC_BACKEND_URL ||
+    process.env.BACKEND_PUBLIC_URL ||
+    process.env.RENDER_EXTERNAL_URL ||
+    "";
+
+  if (envUrl) {
+    return envUrl.replace(/\/$/, "");
   }
 
-  const base = `${req.protocol}://${req.get("host")}`;
-  const cleanPath = imageUrl.startsWith("/") ? imageUrl : `/${imageUrl}`;
+  return `${req.protocol}://${req.get("host")}`;
+}
+
+function normalizePublicImageUrl(req, imageUrl) {
+  if (!imageUrl) return imageUrl;
+
+  const clean = String(imageUrl).trim();
+
+  if (!clean) return clean;
+
+  if (isAbsoluteUrl(clean)) {
+    return clean;
+  }
+
+  const base = getBackendBaseUrl(req);
+  const cleanPath = clean.startsWith("/") ? clean : `/${clean}`;
 
   return `${base}${cleanPath}`;
 }
 
+function makeRelativeUploadUrl(filename) {
+  return `/uploads/${filename}`;
+}
+
 function getStoredImageUrlFromPython(pyResult, fallbackUrl) {
   /*
-    La API Python nueva debe regresar algo así:
+    Python debe devolver algo así:
     {
       file_url: "https://closi-ai.onrender.com/outputs_fast/archivo.png",
-      imageUrl: "https://closi-ai.onrender.com/outputs_fast/archivo.png",
-      file_path: "/opt/render/project/src/outputs_fast/archivo.png"
+      imageUrl: "https://closi-ai.onrender.com/outputs_fast/archivo.png"
     }
 
-    Para la app móvil necesitamos guardar una URL pública,
-    NO file_path, porque file_path es ruta interna del servidor Python.
+    Si no lo devuelve, usamos la imagen original del backend.
   */
   return (
     pyResult?.imageUrl ||
@@ -53,9 +85,8 @@ function getStoredImageUrlFromPython(pyResult, fallbackUrl) {
 
 async function safeDeleteLocalImage(imageUrl) {
   /*
-    Solo intentamos borrar archivos locales del backend.
-    Si imageUrl es https://..., no se borra desde aquí porque pertenece
-    a otro servicio o a un storage externo.
+    Solo borramos archivos locales del backend.
+    Si es URL completa, no intentamos borrarla.
   */
   if (!imageUrl || isAbsoluteUrl(imageUrl)) return;
 
@@ -69,8 +100,15 @@ async function safeDeleteLocalImage(imageUrl) {
   }
 }
 
+/* ======================================================
+   Rutas
+====================================================== */
+
 router.get("/ping", (_req, res) => {
-  res.json({ ok: true, at: new Date().toISOString() });
+  res.json({
+    ok: true,
+    at: new Date().toISOString(),
+  });
 });
 
 router.post("/upload", upload.single("image"), async (req, res) => {
@@ -100,18 +138,24 @@ router.post("/upload", upload.single("image"), async (req, res) => {
       req.file.filename
     );
 
-    const originalRelativeUrl = `/uploads/${req.file.filename}`;
+    const originalRelativeUrl = makeRelativeUploadUrl(req.file.filename);
+    const originalPublicUrl = normalizePublicImageUrl(req, originalRelativeUrl);
+
     const savedItems = [];
+
     const usePython =
       String(process.env.USE_PYTHON_SEGMENTATION || "")
         .trim()
         .toLowerCase() === "true";
 
     console.log("[FAST FLOW] imagen:", req.file.filename);
+    console.log("[FAST FLOW] ruta absoluta:", absoluteImagePath);
+    console.log("[FAST FLOW] originalRelativeUrl:", originalRelativeUrl);
+    console.log("[FAST FLOW] originalPublicUrl:", originalPublicUrl);
     console.log("[FAST FLOW] python activo:", usePython);
     console.log("[FAST FLOW] PYTHON_AI_URL:", process.env.PYTHON_AI_URL);
 
-    // 1) Detectar prendas con API4AI
+    /* ---------- 1. Detectar prendas con API4AI ---------- */
     const rawDetections = await detectClothesWithApi4AI(absoluteImagePath);
 
     const detections = (rawDetections || []).filter(
@@ -120,7 +164,7 @@ router.post("/upload", upload.single("image"), async (req, res) => {
 
     console.log("[FAST FLOW] detecciones válidas:", detections.length);
 
-    // 2) Si no hubo detecciones, se guarda la imagen original
+    /* ---------- 2. Si no hubo detecciones ---------- */
     if (!detections.length) {
       let detectedColor = color ? String(color).toLowerCase().trim() : null;
 
@@ -136,8 +180,9 @@ router.post("/upload", upload.single("image"), async (req, res) => {
       const prenda = await prisma.prenda.create({
         data: {
           userId,
-          imageUrl: originalRelativeUrl,
-          type: type || null,
+          // Guardamos URL pública completa
+          imageUrl: originalPublicUrl,
+          type: type || "prenda",
           color: detectedColor || null,
           brand: brand || null,
           category: "other",
@@ -147,7 +192,7 @@ router.post("/upload", upload.single("image"), async (req, res) => {
 
       savedItems.push(prenda);
     } else {
-      // 3) Si hubo detecciones, guardar una prenda por cada detección válida
+      /* ---------- 3. Si hubo detecciones ---------- */
       for (const detection of detections) {
         const normalized = normalizeClothingLabel(detection.label);
         const rawLabel = String(detection.label || "").toLowerCase();
@@ -207,9 +252,13 @@ router.post("/upload", upload.single("image"), async (req, res) => {
           continue;
         }
 
-        let finalImageUrl = originalRelativeUrl;
+        /*
+          Por defecto usamos la imagen original del backend,
+          pero ya como URL pública completa.
+        */
+        let finalImageUrl = originalPublicUrl;
 
-        // 4) Si Python está activo, pedir recorte/segmentación
+        /* ---------- 4. Intentar segmentar con Python ---------- */
         if (usePython && detection.bbox) {
           try {
             const pyResult = await segmentClothesWithPythonCrop(
@@ -225,17 +274,9 @@ router.post("/upload", upload.single("image"), async (req, res) => {
               file_path: pyResult?.file_path,
             });
 
-            /*
-              Cambio importante:
-              Antes usabas pyResult.file_path y lo importabas a uploads.
-              Eso no sirve bien cuando Python vive en otro servicio de Render.
-
-              Ahora guardamos pyResult.file_url / pyResult.imageUrl,
-              que debe ser una URL pública de closi-ai.
-            */
             finalImageUrl = getStoredImageUrlFromPython(
               pyResult,
-              originalRelativeUrl
+              originalPublicUrl
             );
           } catch (pythonError) {
             console.warn(
@@ -245,27 +286,21 @@ router.post("/upload", upload.single("image"), async (req, res) => {
           }
         }
 
+        /*
+          Blindaje:
+          Si finalImageUrl quedó como /uploads/...,
+          aquí la convertimos en https://closi-backend.onrender.com/uploads/...
+        */
+        finalImageUrl = normalizePublicImageUrl(req, finalImageUrl);
+
+        /* ---------- 5. Color ---------- */
         let detectedColor = color ? String(color).toLowerCase().trim() : null;
 
         if (!detectedColor) {
           try {
-            /*
-              Si la imagen final es URL pública de Python, no podemos calcular
-              color desde ruta local del backend. En ese caso usamos la imagen
-              original local y el bbox detectado por API4AI.
-            */
-            const imageForColor = isAbsoluteUrl(finalImageUrl)
-              ? absoluteImagePath
-              : finalImageUrl === originalRelativeUrl
-                ? absoluteImagePath
-                : path.join(__dirname, "..", finalImageUrl.replace(/^\/+/, ""));
-
-            const bboxForColor =
-              imageForColor === absoluteImagePath ? detection.bbox : null;
-
             const localColor = await extractDominantColorFromImage(
-              imageForColor,
-              bboxForColor
+              absoluteImagePath,
+              detection.bbox || null
             );
 
             detectedColor = localColor.colorName;
@@ -274,14 +309,18 @@ router.post("/upload", upload.single("image"), async (req, res) => {
           }
         }
 
+        const finalType = normalized.type || type || detection.label || "prenda";
+        const finalCategory = normalized.category || "other";
+
         const prenda = await prisma.prenda.create({
           data: {
             userId,
+            // Guardamos URL pública completa
             imageUrl: finalImageUrl,
-            type: normalized.type || null,
+            type: finalType,
             color: detectedColor || null,
             brand: brand || null,
-            category: normalized.category || "other",
+            category: finalCategory,
             confidence: detection.confidence ?? null,
           },
         });
@@ -297,7 +336,8 @@ router.post("/upload", upload.single("image"), async (req, res) => {
       source: "api4ai + python-fast-crop",
       items: savedItems.map((item) => ({
         ...item,
-        imageUrl: makePublicUrl(req, item.imageUrl),
+        imageUrl: normalizePublicImageUrl(req, item.imageUrl),
+        image_url: normalizePublicImageUrl(req, item.imageUrl),
       })),
     });
   } catch (err) {
@@ -319,7 +359,8 @@ router.get("/user/:userId", async (req, res) => {
 
     const prendasConUrl = prendas.map((p) => ({
       ...p,
-      imageUrl: makePublicUrl(req, p.imageUrl),
+      imageUrl: normalizePublicImageUrl(req, p.imageUrl),
+      image_url: normalizePublicImageUrl(req, p.imageUrl),
     }));
 
     return res.json(prendasConUrl);
@@ -328,6 +369,45 @@ router.get("/user/:userId", async (req, res) => {
 
     return res.status(500).json({
       error: "No se pudieron obtener las prendas",
+      detail: err.message,
+    });
+  }
+});
+
+router.patch("/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const numericId = parseInt(id, 10);
+
+    if (Number.isNaN(numericId)) {
+      return res.status(400).json({ error: "ID inválido" });
+    }
+
+    const { type, category, color, brand } = req.body;
+
+    const updated = await prisma.prenda.update({
+      where: { id: numericId },
+      data: {
+        type: type || null,
+        category: category || null,
+        color: color || null,
+        brand: brand || null,
+      },
+    });
+
+    return res.json({
+      success: true,
+      item: {
+        ...updated,
+        imageUrl: normalizePublicImageUrl(req, updated.imageUrl),
+        image_url: normalizePublicImageUrl(req, updated.imageUrl),
+      },
+    });
+  } catch (err) {
+    console.error("update error:", err);
+
+    return res.status(500).json({
+      error: "No se pudo actualizar la prenda",
       detail: err.message,
     });
   }

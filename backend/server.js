@@ -1,87 +1,217 @@
+// // backend/server.js
+// require('dotenv').config();
+
+// const path = require('path');
+// const express = require('express');
+// const cors = require('cors');
+// const morgan = require('morgan');
+// const jwt = require('jsonwebtoken');
+
+// // Prisma (ORM)
+// const { PrismaClient } = require('@prisma/client');
+// const prisma = new PrismaClient();
+
+// // Rutas
+// const authRoutes = require('./auth.routes');           
+// const clothesRouter = require('./routes/clothes.routes'); 
+// const recommendRoutes = require('./routes/recommend.routes');
+// const outfitsRoutes = require('./routes/outfits.routes');
+// const collectionsRoutes = require('./routes/collections.routes');
+// const exploreRoutes = require('./routes/explore.routes');
+// const calendarRoutes = require('./routes/calendar.routes');
+// const testApi4AiRoutes = require('./routes/test.api4ai.routes');
+
+// // 1. INICIALIZAR LA APP PRIMERO
+// const app = express();
+
+// /* ---------- Middlewares globales ---------- */
+// app.use(cors());
+// app.use(morgan('dev'));
+// app.use(express.json());
+// app.use(express.urlencoded({ extended: true }));
+
+// // Servir archivos subidos (imágenes)
+// app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// /* ---------- Health checks ---------- */
+// app.get('/health', (_req, res) => {
+//   res.json({ ok: true, env: process.env.NODE_ENV || 'dev', time: new Date().toISOString() });
+// });
+
+// app.get('/health-db', async (_req, res) => {
+//   try {
+//     // chequeo ligero a la DB (SELECT now())
+//     const r = await prisma.$queryRawUnsafe('SELECT now() AS now');
+//     res.json({ ok: true, dbTime: r?.[0]?.now || null });
+//   } catch (err) {
+//     console.error('health-db error:', err);
+//     res.status(500).json({ ok: false, error: String(err.message || err) });
+//   }
+// });
+
+// /* ---------- Rutas ---------- */
+// // El primer parámetro '/auth' es el prefijo base.
+// app.use('/auth', authRoutes);
+
+// /* ---------- API de prendas (inventario) ---------- */
+// app.use('/api/clothes', clothesRouter);
+
+// app.use('/api/outfits', outfitsRoutes);
+
+// app.use('/api/collections', collectionsRoutes);
+
+// app.use('/api/explore', exploreRoutes);
+
+// /* ---------- API de recomendaciones ---------- */
+// app.use('/api/recommend', recommendRoutes);
+
+// /* ---------- API de calendario ---------- */
+// app.use('/api/calendar', calendarRoutes);
+
+// app.use('/api', testApi4AiRoutes);
+
+// /* ---------- 404 y errores ---------- */
+// app.use((req, res) => {
+//   res.status(404).json({ error: 'Not Found', path: req.originalUrl });
+// });
+
+// app.use((err, _req, res, _next) => {
+//   console.error('Unhandled error:', err);
+//   res.status(500).json({ error: 'Internal Server Error', detail: err?.message || String(err) });
+// });
+
+// /* ---------- Arranque ---------- */
+// const PORT = process.env.PORT || 3000;
+// app.listen(PORT, '0.0.0.0', () => {
+//   console.log(`API en http://localhost:${PORT}`);
+// });
+
 // backend/server.js
-require('dotenv').config();
+require("dotenv").config();
 
-const path = require('path');
-const express = require('express');
-const cors = require('cors');
-const morgan = require('morgan');
-const jwt = require('jsonwebtoken');
+const path = require("path");
+const express = require("express");
+const cors = require("cors");
+const morgan = require("morgan");
 
-// Prisma (ORM)
-const { PrismaClient } = require('@prisma/client');
+// Prisma ORM
+const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 
 // Rutas
-const authRoutes = require('./auth.routes');           
-const clothesRouter = require('./routes/clothes.routes'); 
-const recommendRoutes = require('./routes/recommend.routes');
-const outfitsRoutes = require('./routes/outfits.routes');
-const collectionsRoutes = require('./routes/collections.routes');
-const exploreRoutes = require('./routes/explore.routes');
-const calendarRoutes = require('./routes/calendar.routes');
-const testApi4AiRoutes = require('./routes/test.api4ai.routes');
+const authRoutes = require("./auth.routes");
+const clothesRouter = require("./routes/clothes.routes");
+const recommendRoutes = require("./routes/recommend.routes");
+const outfitsRoutes = require("./routes/outfits.routes");
+const collectionsRoutes = require("./routes/collections.routes");
+const exploreRoutes = require("./routes/explore.routes");
+const calendarRoutes = require("./routes/calendar.routes");
+const testApi4AiRoutes = require("./routes/test.api4ai.routes");
 
-// 1. INICIALIZAR LA APP PRIMERO
 const app = express();
 
-/* ---------- Middlewares globales ---------- */
-app.use(cors());
-app.use(morgan('dev'));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+const PORT = process.env.PORT || 3000;
 
-// Servir archivos subidos (imágenes)
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+/* ---------- Middlewares globales ---------- */
+app.use(
+  cors({
+    origin: "*",
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
+
+app.use(morgan("dev"));
+app.use(express.json({ limit: "25mb" }));
+app.use(express.urlencoded({ extended: true, limit: "25mb" }));
+
+/* ---------- Servir archivos subidos ---------- */
+/*
+  Multer guarda las imágenes en:
+  backend/uploads
+
+  Entonces desde internet deben poder abrirse así:
+  https://closi-backend.onrender.com/uploads/nombre-archivo.jpg
+*/
+const uploadsPath = path.join(__dirname, "uploads");
+
+console.log("📁 Sirviendo uploads desde:", uploadsPath);
+
+app.use(
+  "/uploads",
+  express.static(uploadsPath, {
+    setHeaders: (res) => {
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+    },
+  })
+);
 
 /* ---------- Health checks ---------- */
-app.get('/health', (_req, res) => {
-  res.json({ ok: true, env: process.env.NODE_ENV || 'dev', time: new Date().toISOString() });
+app.get("/", (_req, res) => {
+  res.json({
+    ok: true,
+    service: "Closi Backend",
+    env: process.env.NODE_ENV || "dev",
+    time: new Date().toISOString(),
+  });
 });
 
-app.get('/health-db', async (_req, res) => {
+app.get("/health", (_req, res) => {
+  res.json({
+    ok: true,
+    env: process.env.NODE_ENV || "dev",
+    time: new Date().toISOString(),
+  });
+});
+
+app.get("/health-db", async (_req, res) => {
   try {
-    // chequeo ligero a la DB (SELECT now())
-    const r = await prisma.$queryRawUnsafe('SELECT now() AS now');
-    res.json({ ok: true, dbTime: r?.[0]?.now || null });
+    const r = await prisma.$queryRawUnsafe("SELECT now() AS now");
+
+    res.json({
+      ok: true,
+      dbTime: r?.[0]?.now || null,
+    });
   } catch (err) {
-    console.error('health-db error:', err);
-    res.status(500).json({ ok: false, error: String(err.message || err) });
+    console.error("health-db error:", err);
+
+    res.status(500).json({
+      ok: false,
+      error: String(err.message || err),
+    });
   }
 });
 
 /* ---------- Rutas ---------- */
-// El primer parámetro '/auth' es el prefijo base.
-app.use('/auth', authRoutes);
+app.use("/auth", authRoutes);
+app.use("/api/clothes", clothesRouter);
+app.use("/api/outfits", outfitsRoutes);
+app.use("/api/collections", collectionsRoutes);
+app.use("/api/explore", exploreRoutes);
+app.use("/api/recommend", recommendRoutes);
+app.use("/api/calendar", calendarRoutes);
+app.use("/api", testApi4AiRoutes);
 
-/* ---------- API de prendas (inventario) ---------- */
-app.use('/api/clothes', clothesRouter);
-
-app.use('/api/outfits', outfitsRoutes);
-
-app.use('/api/collections', collectionsRoutes);
-
-app.use('/api/explore', exploreRoutes);
-
-/* ---------- API de recomendaciones ---------- */
-app.use('/api/recommend', recommendRoutes);
-
-/* ---------- API de calendario ---------- */
-app.use('/api/calendar', calendarRoutes);
-
-app.use('/api', testApi4AiRoutes);
-
-/* ---------- 404 y errores ---------- */
+/* ---------- 404 ---------- */
 app.use((req, res) => {
-  res.status(404).json({ error: 'Not Found', path: req.originalUrl });
+  res.status(404).json({
+    error: "Not Found",
+    path: req.originalUrl,
+  });
 });
 
+/* ---------- Error handler ---------- */
 app.use((err, _req, res, _next) => {
-  console.error('Unhandled error:', err);
-  res.status(500).json({ error: 'Internal Server Error', detail: err?.message || String(err) });
+  console.error("Unhandled error:", err);
+
+  res.status(500).json({
+    error: "Internal Server Error",
+    detail: err?.message || String(err),
+  });
 });
 
 /* ---------- Arranque ---------- */
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`API en http://localhost:${PORT}`);
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`🚀 API en http://0.0.0.0:${PORT}`);
 });
