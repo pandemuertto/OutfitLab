@@ -617,34 +617,39 @@
 //   },
 // });
 
-import { post } from "../src/api";
-import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
+//frontend/app/register.tsx
+// frontend/app/register.tsx
 import React, { useEffect, useRef, useState } from "react";
 import {
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
   ActivityIndicator,
-  Modal,
-  StyleSheet,
+  Alert,
   Animated,
   Easing,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import { router } from "expo-router";
+
 import * as AuthSession from "expo-auth-session";
 import * as WebBrowser from "expo-web-browser";
 import * as Google from "expo-auth-session/providers/google";
-import { LinearGradient } from "expo-linear-gradient";
+
+import { post } from "../src/api";
+import { useAuth } from "../src/contexts/auth";
 
 WebBrowser.maybeCompleteAuthSession();
 
 export default function RegisterScreen() {
+  const { login } = useAuth();
+
   const [formData, setFormData] = useState({
     nombre: "",
     email: "",
@@ -655,12 +660,21 @@ export default function RegisterScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [showSuccessModal, setShowSuccessModal] = useState(false);
 
   const headerOpacity = useRef(new Animated.Value(0)).current;
   const headerTranslateY = useRef(new Animated.Value(-20)).current;
   const cardOpacity = useRef(new Animated.Value(0)).current;
   const cardTranslateY = useRef(new Animated.Value(40)).current;
+
+  const redirectUri = __DEV__
+    ? "https://auth.expo.dev/@pandemuerttoo/outfit-lab"
+    : AuthSession.makeRedirectUri({ scheme: "outfitlab" });
+
+  const [gRequest, gResponse, gPromptAsync] = Google.useAuthRequest({
+    clientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || "",
+    scopes: ["profile", "email"],
+    redirectUri,
+  });
 
   useEffect(() => {
     Animated.parallel([
@@ -693,55 +707,39 @@ export default function RegisterScreen() {
     ]).start();
   }, [headerOpacity, headerTranslateY, cardOpacity, cardTranslateY]);
 
-  const handleChange = (field: string, value: string) => {
-    setFormData((prev) => ({ ...prev, [field]: value }));
-  };
-
-  const redirectUri = __DEV__
-    ? "https://auth.expo.dev/@pandemuerttoo/outfit-lab"
-    : AuthSession.makeRedirectUri({ scheme: "outfitlab" });
-
-  const [gRequest, gResponse, gPromptAsync] = Google.useAuthRequest({
-    clientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || "",
-    scopes: ["profile", "email"],
-    redirectUri,
-  });
-
   useEffect(() => {
     if (gResponse?.type === "success" && gResponse.params?.id_token) {
       handleGoogleWithToken(gResponse.params.id_token);
     }
   }, [gResponse]);
 
-  const handleGoogleWithToken = async (idToken: string) => {
-    setIsLoading(true);
-    try {
-      const data = await post("/auth/google", { idToken });
+  const handleChange = (field: string, value: string) => {
+    setFormData((prev) => ({ ...prev, [field]: value }));
+  };
 
-      if (data?.token || data?.user) {
-        await AsyncStorage.setItem("isNewUser", "true");
-        await AsyncStorage.removeItem("onboardingData");
+  const goToOnboarding = () => {
+    router.replace("/onboarding");
+  };
 
-        setShowSuccessModal(true);
-
-        setTimeout(() => {
-          setShowSuccessModal(false);
-          router.replace("/login");
-        }, 1800);
-      } else {
-        Alert.alert("Error", data?.error || "No se pudo registrar con Google");
-      }
-    } catch (e: any) {
-      console.error("❌ Error Google:", e);
-      Alert.alert(
-        "Error",
-        e?.response?.data?.message ||
-          e?.message ||
-          "Fallo al conectar con Google"
-      );
-    } finally {
-      setIsLoading(false);
+  const saveSessionAndGoToOnboarding = async (data: any) => {
+    if (!data?.user?.id) {
+      throw new Error("Respuesta inválida: falta user.id");
     }
+
+    if (!data?.token) {
+      throw new Error("Respuesta inválida: falta token");
+    }
+
+    await login(
+      {
+        id: data.user.id,
+        name: data.user.name,
+        email: data.user.email,
+      },
+      data.token
+    );
+
+    goToOnboarding();
   };
 
   const handleRegister = async () => {
@@ -765,43 +763,102 @@ export default function RegisterScreen() {
       return;
     }
 
-    setIsLoading(true);
-
     try {
-      const data = await post("/auth/register", {
-        email: formData.email.trim(),
-        password: formData.password,
+      setIsLoading(true);
+
+      const email = formData.email.trim().toLowerCase();
+      const password = formData.password;
+
+      const registerData: any = await post("/auth/register", {
+        email,
+        password,
         name: formData.nombre.trim(),
       });
 
-      if (data?.success || data?.user) {
-        await AsyncStorage.setItem("isNewUser", "true");
-        await AsyncStorage.removeItem("onboardingData");
-
-        setShowSuccessModal(true);
-
-        setFormData({
-          nombre: "",
-          email: "",
-          password: "",
-          confirmPassword: "",
-        });
-
-        setTimeout(() => {
-          setShowSuccessModal(false);
-          router.replace("/login");
-        }, 1800);
-      } else {
-        Alert.alert("Error", data?.error || "Error al crear la cuenta");
+      /**
+       * Caso ideal:
+       * El backend responde con user + token.
+       */
+      if (registerData?.user?.id && registerData?.token) {
+        await saveSessionAndGoToOnboarding(registerData);
+        return;
       }
+
+      /**
+       * Respaldo:
+       * Si tu backend crea la cuenta pero NO devuelve token,
+       * hacemos login automático para obtener el token.
+       */
+      const loginData: any = await post("/auth/login", {
+        email,
+        password,
+      });
+
+      await saveSessionAndGoToOnboarding(loginData);
     } catch (err: any) {
       console.error("❌ Error registro:", err);
+
       Alert.alert(
         "Error",
         err?.response?.data?.error ||
           err?.response?.data?.message ||
           err?.message ||
-          "No se pudo conectar con el servidor"
+          "No se pudo crear la cuenta"
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleGoogleRegister = async () => {
+    try {
+      await gPromptAsync();
+    } catch (e: any) {
+      Alert.alert("Google", e?.message || "No se pudo abrir Google");
+    }
+  };
+
+  const handleGoogleWithToken = async (idToken: string) => {
+    try {
+      setIsLoading(true);
+
+      const data: any = await post("/auth/google", { idToken });
+
+      if (!data?.user?.id) {
+        throw new Error("Respuesta de Google inválida: falta user.id");
+      }
+
+      if (!data?.token) {
+        throw new Error("Respuesta de Google inválida: falta token");
+      }
+
+      await login(
+        {
+          id: data.user.id,
+          name: data.user.name,
+          email: data.user.email,
+        },
+        data.token
+      );
+
+      /**
+       * Si Google creó usuario nuevo, onboarding.
+       * Si Google era usuario existente, home.
+       */
+      if (data?.isNewUser === true || data?.user?.isNewUser === true) {
+        router.replace("/onboarding");
+      } else {
+        router.replace("/(tabs)");
+      }
+    } catch (e: any) {
+      console.error("❌ Error Google:", e);
+
+      Alert.alert(
+        "Error",
+        e?.response?.data?.message ||
+          e?.response?.data?.error ||
+          e?.message ||
+          "Fallo al conectar con Google"
       );
     } finally {
       setIsLoading(false);
@@ -836,45 +893,45 @@ export default function RegisterScreen() {
               <Ionicons name="sparkles" size={26} color="#FFFFFF" />
               <Text style={styles.logoText}>OutfitLab</Text>
             </View>
-            <Text style={styles.subtitle}>Tu moodboard de moda personal</Text>
-          </Animated.View>
 
-          <View style={styles.circleTop} />
-          <View style={styles.circleBottom} />
+            <Text style={styles.subtitle}>Crea tu cuenta y descubre tu estilo</Text>
+          </Animated.View>
         </LinearGradient>
 
-        <View style={styles.cardWrapper}>
-          <Animated.View
-            style={[
-              styles.card,
-              {
-                opacity: cardOpacity,
-                transform: [{ translateY: cardTranslateY }],
-              },
-            ]}
-          >
+        <Animated.View
+          style={[
+            styles.cardWrapper,
+            {
+              opacity: cardOpacity,
+              transform: [{ translateY: cardTranslateY }],
+            },
+          ]}
+        >
+          <View style={styles.card}>
             <View style={styles.toggleContainer}>
-              <TouchableOpacity
-                style={styles.toggleButton}
+              <Pressable
                 onPress={() => router.push("/login")}
-                disabled={isLoading}
+                style={styles.toggleButton}
               >
                 <Text style={styles.inactiveToggleText}>Iniciar sesión</Text>
-              </TouchableOpacity>
+              </Pressable>
 
-              <LinearGradient
-                colors={["#4A6FA5", "#8FB8A8"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={[styles.toggleButton, styles.activeToggle]}
-              >
-                <Text style={styles.activeToggleText}>Registrarse</Text>
-              </LinearGradient>
+              <Pressable style={styles.toggleButton}>
+                <LinearGradient
+                  colors={["#4A6FA5", "#8FB8A8"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.activeToggle}
+                >
+                  <Text style={styles.activeToggleText}>Registrarse</Text>
+                </LinearGradient>
+              </Pressable>
             </View>
 
             <View style={styles.form}>
               <View style={styles.fieldGroup}>
-                <Text style={styles.label}>NOMBRE COMPLETO</Text>
+                <Text style={styles.label}>Nombre</Text>
+
                 <View style={styles.inputWrapper}>
                   <Ionicons
                     name="person-outline"
@@ -882,19 +939,21 @@ export default function RegisterScreen() {
                     color="#9CA3AF"
                     style={styles.inputIcon}
                   />
+
                   <TextInput
-                    style={styles.input}
-                    placeholder="Tu nombre completo"
-                    placeholderTextColor="#9CA3AF"
                     value={formData.nombre}
-                    onChangeText={(t) => handleChange("nombre", t)}
-                    editable={!isLoading}
+                    onChangeText={(value) => handleChange("nombre", value)}
+                    placeholder="Tu nombre"
+                    placeholderTextColor="#9CA3AF"
+                    autoCapitalize="words"
+                    style={styles.input}
                   />
                 </View>
               </View>
 
               <View style={styles.fieldGroup}>
-                <Text style={styles.label}>CORREO ELECTRÓNICO</Text>
+                <Text style={styles.label}>Correo electrónico</Text>
+
                 <View style={styles.inputWrapper}>
                   <Ionicons
                     name="mail-outline"
@@ -902,21 +961,23 @@ export default function RegisterScreen() {
                     color="#9CA3AF"
                     style={styles.inputIcon}
                   />
+
                   <TextInput
-                    style={styles.input}
+                    value={formData.email}
+                    onChangeText={(value) => handleChange("email", value)}
                     placeholder="tu@email.com"
                     placeholderTextColor="#9CA3AF"
-                    value={formData.email}
-                    onChangeText={(t) => handleChange("email", t)}
                     keyboardType="email-address"
                     autoCapitalize="none"
-                    editable={!isLoading}
+                    autoCorrect={false}
+                    style={styles.input}
                   />
                 </View>
               </View>
 
               <View style={styles.fieldGroup}>
-                <Text style={styles.label}>CONTRASEÑA</Text>
+                <Text style={styles.label}>Contraseña</Text>
+
                 <View style={styles.inputWrapper}>
                   <Ionicons
                     name="lock-closed-outline"
@@ -924,31 +985,29 @@ export default function RegisterScreen() {
                     color="#9CA3AF"
                     style={styles.inputIcon}
                   />
+
                   <TextInput
-                    style={styles.input}
-                    placeholder="••••••••"
-                    placeholderTextColor="#9CA3AF"
                     value={formData.password}
-                    onChangeText={(t) => handleChange("password", t)}
+                    onChangeText={(value) => handleChange("password", value)}
+                    placeholder="Mínimo 6 caracteres"
+                    placeholderTextColor="#9CA3AF"
                     secureTextEntry={!showPassword}
-                    editable={!isLoading}
+                    style={styles.input}
                   />
-                  <TouchableOpacity
-                    onPress={() => setShowPassword(!showPassword)}
-                    style={styles.eyeButton}
-                    disabled={isLoading}
-                  >
+
+                  <Pressable onPress={() => setShowPassword(!showPassword)}>
                     <Ionicons
                       name={showPassword ? "eye-off-outline" : "eye-outline"}
                       size={20}
-                      color="#6B7280"
+                      color="#666"
                     />
-                  </TouchableOpacity>
+                  </Pressable>
                 </View>
               </View>
 
               <View style={styles.fieldGroup}>
-                <Text style={styles.label}>CONFIRMAR CONTRASEÑA</Text>
+                <Text style={styles.label}>Confirmar contraseña</Text>
+
                 <View style={styles.inputWrapper}>
                   <Ionicons
                     name="lock-closed-outline"
@@ -956,110 +1015,84 @@ export default function RegisterScreen() {
                     color="#9CA3AF"
                     style={styles.inputIcon}
                   />
+
                   <TextInput
-                    style={styles.input}
-                    placeholder="••••••••"
-                    placeholderTextColor="#9CA3AF"
                     value={formData.confirmPassword}
-                    onChangeText={(t) => handleChange("confirmPassword", t)}
+                    onChangeText={(value) =>
+                      handleChange("confirmPassword", value)
+                    }
+                    placeholder="Repite tu contraseña"
+                    placeholderTextColor="#9CA3AF"
                     secureTextEntry={!showConfirmPassword}
-                    editable={!isLoading}
+                    style={styles.input}
                   />
-                  <TouchableOpacity
+
+                  <Pressable
                     onPress={() =>
                       setShowConfirmPassword(!showConfirmPassword)
                     }
-                    style={styles.eyeButton}
-                    disabled={isLoading}
                   >
                     <Ionicons
                       name={
                         showConfirmPassword ? "eye-off-outline" : "eye-outline"
                       }
                       size={20}
-                      color="#6B7280"
+                      color="#666"
                     />
-                  </TouchableOpacity>
+                  </Pressable>
                 </View>
               </View>
 
-              <View style={styles.termsContainer}>
-                <Text style={styles.termsText}>
-                  Al registrarte, aceptas nuestros{" "}
-                  <Text style={styles.termsLink}>Términos de servicio</Text> y{" "}
-                  <Text style={styles.termsLink}>Política de privacidad</Text>
-                </Text>
-              </View>
-
-              <TouchableOpacity
-                style={styles.submitButtonOuter}
+              <Pressable
                 onPress={handleRegister}
+                style={styles.submitButtonOuter}
                 disabled={isLoading}
               >
                 <LinearGradient
                   colors={["#4A6FA5", "#8FB8A8"]}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
-                  style={[styles.submitButton, isLoading && { opacity: 0.7 }]}
+                  style={[
+                    styles.submitButton,
+                    isLoading && styles.disabledButton,
+                  ]}
                 >
                   {isLoading ? (
                     <ActivityIndicator color="#FFFFFF" />
                   ) : (
-                    <Text style={styles.submitButtonText}>Crear cuenta</Text>
+                    <Text style={styles.submitButtonText}>
+                      Crear cuenta
+                    </Text>
                   )}
                 </LinearGradient>
-              </TouchableOpacity>
-
-              <View style={styles.dividerContainer}>
-                <View style={styles.dividerLine} />
-                <Text style={styles.dividerText}>O continuar con</Text>
-                <View style={styles.dividerLine} />
-              </View>
-
-              <View style={styles.socialContainer}>
-                <TouchableOpacity
-                  style={[styles.socialButton, isLoading && { opacity: 0.6 }]}
-                  disabled={!gRequest || isLoading}
-                  onPress={() => gPromptAsync()}
-                >
-                  <Ionicons name="logo-google" size={22} color="#DB4437" />
-                  <Text style={styles.socialButtonText}>Google</Text>
-                </TouchableOpacity>
-              </View>
-
-              <View style={styles.bottomRow}>
-                <Text style={styles.bottomText}>¿Ya tienes una cuenta? </Text>
-                <TouchableOpacity
-                  onPress={() => router.push("/login")}
-                  disabled={isLoading}
-                >
-                  <Text style={styles.bottomLink}>Inicia sesión</Text>
-                </TouchableOpacity>
-              </View>
+              </Pressable>
             </View>
-          </Animated.View>
-        </View>
-      </ScrollView>
 
-      <Modal
-        visible={showSuccessModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowSuccessModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Ionicons name="checkmark-circle" size={60} color="#4CAF50" />
-            <Text style={styles.modalTitle}>¡Cuenta creada exitosamente!</Text>
-            <Text style={styles.modalText}>Serás redirigido al login...</Text>
-            <ActivityIndicator
-              size="small"
-              color="#4A6FA5"
-              style={{ marginTop: 15 }}
-            />
+            <View style={styles.dividerContainer}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>O registrarte con</Text>
+              <View style={styles.dividerLine} />
+            </View>
+
+            <Pressable
+              style={styles.socialButton}
+              onPress={handleGoogleRegister}
+              disabled={!gRequest || isLoading}
+            >
+              <Ionicons name="logo-google" size={20} color="#DB4437" />
+              <Text style={styles.socialButtonText}>Google</Text>
+            </Pressable>
+
+            <View style={styles.bottomRow}>
+              <Text style={styles.bottomText}>¿Ya tienes una cuenta? </Text>
+
+              <Pressable onPress={() => router.push("/login")}>
+                <Text style={styles.bottomLink}>Inicia sesión</Text>
+              </Pressable>
+            </View>
           </View>
-        </View>
-      </Modal>
+        </Animated.View>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }
@@ -1076,12 +1109,9 @@ const styles = StyleSheet.create({
     paddingTop: 70,
     paddingBottom: 110,
     paddingHorizontal: 24,
-    position: "relative",
-    overflow: "hidden",
   },
   headerContent: {
     alignItems: "center",
-    zIndex: 2,
   },
   logoRow: {
     flexDirection: "row",
@@ -1091,31 +1121,12 @@ const styles = StyleSheet.create({
   },
   logoText: {
     fontSize: 38,
-    fontWeight: "600",
+    fontWeight: "700",
     color: "#FFFFFF",
   },
   subtitle: {
     fontSize: 14,
     color: "rgba(255,255,255,0.9)",
-    fontWeight: "300",
-  },
-  circleTop: {
-    position: "absolute",
-    top: -55,
-    right: -55,
-    width: 190,
-    height: 190,
-    borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.10)",
-  },
-  circleBottom: {
-    position: "absolute",
-    bottom: -50,
-    left: -50,
-    width: 160,
-    height: 160,
-    borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.10)",
   },
   cardWrapper: {
     flex: 1,
@@ -1147,19 +1158,16 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 999,
     alignItems: "center",
-    justifyContent: "center",
   },
   activeToggleText: {
     color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "600",
+    fontWeight: "700",
   },
   inactiveToggleText: {
     textAlign: "center",
     paddingVertical: 12,
     color: "#4B5563",
-    fontSize: 14,
-    fontWeight: "500",
+    fontWeight: "600",
   },
   form: {
     gap: 18,
@@ -1190,23 +1198,6 @@ const styles = StyleSheet.create({
     color: "#1F2937",
     fontSize: 15,
   },
-  eyeButton: {
-    paddingLeft: 8,
-    paddingVertical: 4,
-  },
-  termsContainer: {
-    marginTop: 2,
-  },
-  termsText: {
-    color: "#666",
-    fontSize: 13,
-    textAlign: "center",
-    lineHeight: 20,
-  },
-  termsLink: {
-    color: "#4A6FA5",
-    fontWeight: "600",
-  },
   submitButtonOuter: {
     marginTop: 4,
   },
@@ -1214,12 +1205,14 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     borderRadius: 999,
     alignItems: "center",
-    justifyContent: "center",
+  },
+  disabledButton: {
+    opacity: 0.7,
   },
   submitButtonText: {
     color: "#FFFFFF",
     fontSize: 16,
-    fontWeight: "600",
+    fontWeight: "700",
   },
   dividerContainer: {
     flexDirection: "row",
@@ -1235,10 +1228,6 @@ const styles = StyleSheet.create({
   dividerText: {
     color: "#6B7280",
     fontSize: 14,
-    fontWeight: "300",
-  },
-  socialContainer: {
-    gap: 12,
   },
   socialButton: {
     borderWidth: 1,
@@ -1254,13 +1243,12 @@ const styles = StyleSheet.create({
   socialButtonText: {
     fontSize: 15,
     color: "#424242",
-    fontWeight: "500",
+    fontWeight: "600",
   },
   bottomRow: {
     marginTop: 24,
     flexDirection: "row",
     justifyContent: "center",
-    flexWrap: "wrap",
   },
   bottomText: {
     color: "#666",
@@ -1269,33 +1257,6 @@ const styles = StyleSheet.create({
   bottomLink: {
     color: "#4A6FA5",
     fontSize: 14,
-    fontWeight: "600",
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.45)",
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 20,
-  },
-  modalContent: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 24,
-    padding: 28,
-    alignItems: "center",
-    width: "84%",
-  },
-  modalTitle: {
-    fontSize: 18,
     fontWeight: "700",
-    color: "#333",
-    marginTop: 15,
-    textAlign: "center",
-  },
-  modalText: {
-    fontSize: 14,
-    color: "#666",
-    marginTop: 5,
-    textAlign: "center",
   },
 });

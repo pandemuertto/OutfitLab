@@ -412,8 +412,10 @@
 //   );
 // }
 
+// frontend/app/login.tsx
 import React, { useEffect, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Animated,
   KeyboardAvoidingView,
@@ -427,13 +429,11 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 
 import * as AuthSession from "expo-auth-session";
 import * as WebBrowser from "expo-web-browser";
 import * as Google from "expo-auth-session/providers/google";
-import * as Facebook from "expo-auth-session/providers/facebook";
 
 import { post } from "../src/api";
 import { useAuth } from "../src/contexts/auth";
@@ -441,12 +441,13 @@ import { useAuth } from "../src/contexts/auth";
 WebBrowser.maybeCompleteAuthSession();
 
 export default function LoginScreen() {
-  const { login } = useAuth();
+  const { user, token, loading, login } = useAuth();
 
-  const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+
   const [showPassword, setShowPassword] = useState(false);
+  const [sending, setSending] = useState(false);
 
   const headerAnim = useRef(new Animated.Value(0)).current;
   const cardAnim = useRef(new Animated.Value(40)).current;
@@ -459,12 +460,6 @@ export default function LoginScreen() {
   const [gRequest, gResponse, gPromptAsync] = Google.useAuthRequest({
     clientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || "",
     scopes: ["profile", "email"],
-    redirectUri,
-  });
-
-  const [fbRequest, fbResponse, fbPromptAsync] = Facebook.useAuthRequest({
-    clientId: process.env.EXPO_PUBLIC_FB_APP_ID || "",
-    scopes: ["public_profile", "email"],
     redirectUri,
   });
 
@@ -493,53 +488,43 @@ export default function LoginScreen() {
   }, [headerAnim, cardAnim, cardOpacity]);
 
   useEffect(() => {
+    if (loading) return;
+
+    if (user && token) {
+      router.replace("/(tabs)");
+    }
+  }, [user, token, loading]);
+
+  useEffect(() => {
     if (gResponse?.type === "success" && gResponse.params?.id_token) {
       handleGoogleWithToken(gResponse.params.id_token);
     }
   }, [gResponse]);
 
-  
-  const goAfterAuth = async (data: any) => {
-    const onboardingData = await AsyncStorage.getItem("onboardingData");
-    const storedIsNewUser = await AsyncStorage.getItem("isNewUser");
-    const isNewUser =
-      data?.isNewUser || data?.user?.isNewUser || storedIsNewUser === "true";
-
-    if (isNewUser) {
-      await AsyncStorage.setItem("isNewUser", "true");
-      await AsyncStorage.removeItem("onboardingData");
-
-      Alert.alert(
-        "¡Bienvenido!",
-        `Hola ${data.user?.name ?? ""}. Completa tu perfil para continuar.`
-      );
-
-      router.replace("/onboarding");
-      return;
-    }
-
-    await AsyncStorage.removeItem("isNewUser");
-
-    if (!onboardingData) {
-      router.replace("/onboarding");
-      return;
-    }
-
-    Alert.alert("Éxito", `Bienvenido, ${data.user?.name ?? ""}`);
+  const goToHome = () => {
     router.replace("/(tabs)");
   };
 
   const handleLogin = async () => {
-    if (!email || !password) {
+    if (!email.trim() || !password.trim()) {
       Alert.alert("Error", "Por favor completa todos los campos");
       return;
     }
 
     try {
-      const data = await post("/auth/login", { email, password });
+      setSending(true);
 
-      if (!data.user || !data.user.id) {
-        throw new Error("Respuesta de login inválida (falta user.id)");
+      const data: any = await post("/auth/login", {
+        email: email.trim().toLowerCase(),
+        password,
+      });
+
+      if (!data?.user?.id) {
+        throw new Error("Respuesta de login inválida: falta user.id");
+      }
+
+      if (!data?.token) {
+        throw new Error("Respuesta de login inválida: falta token");
       }
 
       await login(
@@ -551,15 +536,19 @@ export default function LoginScreen() {
         data.token
       );
 
-      await goAfterAuth(data);
+      goToHome();
     } catch (err: any) {
-      console.error("LOGIN ERROR:", err?.message || err);
+      console.error("LOGIN ERROR:", err);
+
       Alert.alert(
         "Error",
         err?.response?.data?.message ||
+          err?.response?.data?.error ||
           err?.message ||
-          "No se pudo conectar con el servidor"
+          "No se pudo iniciar sesión"
       );
+    } finally {
+      setSending(false);
     }
   };
 
@@ -573,10 +562,16 @@ export default function LoginScreen() {
 
   const handleGoogleWithToken = async (idToken: string) => {
     try {
-      const data = await post("/auth/google", { idToken });
+      setSending(true);
 
-      if (!data.user || !data.user.id) {
-        throw new Error("Respuesta de Google inválida (falta user.id)");
+      const data: any = await post("/auth/google", { idToken });
+
+      if (!data?.user?.id) {
+        throw new Error("Respuesta de Google inválida: falta user.id");
+      }
+
+      if (!data?.token) {
+        throw new Error("Respuesta de Google inválida: falta token");
       }
 
       await login(
@@ -588,35 +583,39 @@ export default function LoginScreen() {
         data.token
       );
 
-      await goAfterAuth(data);
+      /**
+       * Para login con Google:
+       * Si el backend dice que es nuevo, lo mandamos a onboarding.
+       * Si ya existía, va directo a home.
+       */
+      if (data?.isNewUser === true || data?.user?.isNewUser === true) {
+        router.replace("/onboarding");
+      } else {
+        goToHome();
+      }
     } catch (e: any) {
       console.error("GOOGLE ERROR:", e);
+
       Alert.alert(
         "Google",
         e?.response?.data?.message ||
+          e?.response?.data?.error ||
           e?.message ||
           "Error al autenticar con Google"
       );
+    } finally {
+      setSending(false);
     }
   };
 
-  const handleFacebook = async () => {
-    try {
-      await fbPromptAsync();
-    } catch (e: any) {
-      Alert.alert("Facebook", e?.message || "No se pudo abrir Facebook");
-    }
-  };
-
-  
-
-  const handleToggleMode = () => {
-    if (isLogin) {
-      router.push("/register");
-    } else {
-      setIsLogin(true);
-    }
-  };
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#4A6FA5" />
+        <Text style={styles.loadingText}>Cargando sesión...</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -634,9 +633,6 @@ export default function LoginScreen() {
             end={{ x: 1, y: 1 }}
             style={styles.header}
           >
-            <View style={styles.circleTop} />
-            <View style={styles.circleBottom} />
-
             <Animated.View
               style={[
                 styles.headerContent,
@@ -657,6 +653,7 @@ export default function LoginScreen() {
                 <Ionicons name="sparkles" size={28} color="#FFFFFF" />
                 <Text style={styles.logoText}>OutfitLab</Text>
               </View>
+
               <Text style={styles.subtitle}>Tu moodboard de moda personal</Text>
             </Animated.View>
           </LinearGradient>
@@ -672,46 +669,29 @@ export default function LoginScreen() {
           >
             <View style={styles.card}>
               <View style={styles.toggleContainer}>
-                <Pressable
-                  onPress={() => setIsLogin(true)}
-                  style={styles.toggleButton}
-                >
-                  {isLogin ? (
-                    <LinearGradient
-                      colors={["#4A6FA5", "#8FB8A8"]}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 0 }}
-                      style={styles.activeToggle}
-                    >
-                      <Text style={styles.activeToggleText}>Iniciar sesión</Text>
-                    </LinearGradient>
-                  ) : (
-                    <Text style={styles.inactiveToggleText}>Iniciar sesión</Text>
-                  )}
+                <Pressable style={styles.toggleButton}>
+                  <LinearGradient
+                    colors={["#4A6FA5", "#8FB8A8"]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.activeToggle}
+                  >
+                    <Text style={styles.activeToggleText}>Iniciar sesión</Text>
+                  </LinearGradient>
                 </Pressable>
 
                 <Pressable
-                  onPress={handleToggleMode}
+                  onPress={() => router.push("/register")}
                   style={styles.toggleButton}
                 >
-                  {!isLogin ? (
-                    <LinearGradient
-                      colors={["#4A6FA5", "#8FB8A8"]}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 0 }}
-                      style={styles.activeToggle}
-                    >
-                      <Text style={styles.activeToggleText}>Registrarse</Text>
-                    </LinearGradient>
-                  ) : (
-                    <Text style={styles.inactiveToggleText}>Registrarse</Text>
-                  )}
+                  <Text style={styles.inactiveToggleText}>Registrarse</Text>
                 </Pressable>
               </View>
 
               <View style={styles.form}>
                 <View style={styles.fieldGroup}>
                   <Text style={styles.label}>Correo electrónico</Text>
+
                   <View style={styles.inputWrapper}>
                     <Ionicons
                       name="mail-outline"
@@ -719,6 +699,7 @@ export default function LoginScreen() {
                       color="#9CA3AF"
                       style={styles.inputIcon}
                     />
+
                     <TextInput
                       value={email}
                       onChangeText={setEmail}
@@ -726,6 +707,7 @@ export default function LoginScreen() {
                       placeholderTextColor="#9CA3AF"
                       keyboardType="email-address"
                       autoCapitalize="none"
+                      autoCorrect={false}
                       style={styles.input}
                     />
                   </View>
@@ -733,6 +715,7 @@ export default function LoginScreen() {
 
                 <View style={styles.fieldGroup}>
                   <Text style={styles.label}>Contraseña</Text>
+
                   <View style={styles.inputWrapper}>
                     <Ionicons
                       name="lock-closed-outline"
@@ -740,6 +723,7 @@ export default function LoginScreen() {
                       color="#9CA3AF"
                       style={styles.inputIcon}
                     />
+
                     <TextInput
                       value={password}
                       onChangeText={setPassword}
@@ -748,6 +732,7 @@ export default function LoginScreen() {
                       secureTextEntry={!showPassword}
                       style={styles.input}
                     />
+
                     <Pressable onPress={() => setShowPassword(!showPassword)}>
                       <Ionicons
                         name={showPassword ? "eye-off-outline" : "eye-outline"}
@@ -758,22 +743,25 @@ export default function LoginScreen() {
                   </View>
                 </View>
 
-                {isLogin && (
-                  <Pressable style={styles.forgotPassword}>
-                    <Text style={styles.forgotPasswordText}>
-                      ¿Olvidaste tu contraseña?
-                    </Text>
-                  </Pressable>
-                )}
-
-                <Pressable onPress={handleLogin} style={styles.submitButtonOuter}>
+                <Pressable
+                  onPress={handleLogin}
+                  style={styles.submitButtonOuter}
+                  disabled={sending}
+                >
                   <LinearGradient
                     colors={["#4A6FA5", "#8FB8A8"]}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 0 }}
-                    style={styles.submitButton}
+                    style={[
+                      styles.submitButton,
+                      sending && styles.disabledButton,
+                    ]}
                   >
-                    <Text style={styles.submitButtonText}>Iniciar sesión</Text>
+                    {sending ? (
+                      <ActivityIndicator color="#FFFFFF" />
+                    ) : (
+                      <Text style={styles.submitButtonText}>Entrar</Text>
+                    )}
                   </LinearGradient>
                 </Pressable>
               </View>
@@ -784,19 +772,18 @@ export default function LoginScreen() {
                 <View style={styles.dividerLine} />
               </View>
 
-              <View style={styles.socialContainer}>
-                <Pressable
-                  style={styles.socialButton}
-                  onPress={handleGoogle}
-                  disabled={!gRequest}
-                >
-                  <Ionicons name="logo-google" size={20} color="#DB4437" />
-                  <Text style={styles.socialButtonText}>Google</Text>
-                </Pressable>
-              </View>
+              <Pressable
+                style={styles.socialButton}
+                onPress={handleGoogle}
+                disabled={!gRequest || sending}
+              >
+                <Ionicons name="logo-google" size={20} color="#DB4437" />
+                <Text style={styles.socialButtonText}>Google</Text>
+              </Pressable>
 
               <View style={styles.bottomRow}>
                 <Text style={styles.bottomText}>¿No tienes una cuenta? </Text>
+
                 <Pressable onPress={() => router.push("/register")}>
                   <Text style={styles.bottomLink}>Regístrate</Text>
                 </Pressable>
@@ -810,6 +797,17 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
+  loadingContainer: {
+    flex: 1,
+    backgroundColor: "#EEF3F7",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  loadingText: {
+    marginTop: 12,
+    color: "#4A6FA5",
+    fontWeight: "600",
+  },
   container: {
     flex: 1,
     backgroundColor: "#EEF3F7",
@@ -821,12 +819,9 @@ const styles = StyleSheet.create({
     paddingTop: 70,
     paddingBottom: 110,
     paddingHorizontal: 24,
-    position: "relative",
-    overflow: "hidden",
   },
   headerContent: {
     alignItems: "center",
-    zIndex: 2,
   },
   logoRow: {
     flexDirection: "row",
@@ -836,31 +831,12 @@ const styles = StyleSheet.create({
   },
   logoText: {
     fontSize: 38,
-    fontWeight: "600",
+    fontWeight: "700",
     color: "#FFFFFF",
   },
   subtitle: {
     fontSize: 14,
     color: "rgba(255,255,255,0.9)",
-    fontWeight: "300",
-  },
-  circleTop: {
-    position: "absolute",
-    top: -55,
-    right: -55,
-    width: 190,
-    height: 190,
-    borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.10)",
-  },
-  circleBottom: {
-    position: "absolute",
-    bottom: -50,
-    left: -50,
-    width: 160,
-    height: 160,
-    borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.10)",
   },
   cardWrapper: {
     flex: 1,
@@ -892,19 +868,16 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 999,
     alignItems: "center",
-    justifyContent: "center",
   },
   activeToggleText: {
     color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "600",
+    fontWeight: "700",
   },
   inactiveToggleText: {
     textAlign: "center",
     paddingVertical: 12,
     color: "#4B5563",
-    fontSize: 14,
-    fontWeight: "500",
+    fontWeight: "600",
   },
   form: {
     gap: 18,
@@ -935,14 +908,6 @@ const styles = StyleSheet.create({
     color: "#1F2937",
     fontSize: 15,
   },
-  forgotPassword: {
-    alignSelf: "flex-end",
-  },
-  forgotPasswordText: {
-    fontSize: 14,
-    color: "#4A6FA5",
-    fontWeight: "600",
-  },
   submitButtonOuter: {
     marginTop: 4,
   },
@@ -950,12 +915,14 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     borderRadius: 999,
     alignItems: "center",
-    justifyContent: "center",
+  },
+  disabledButton: {
+    opacity: 0.7,
   },
   submitButtonText: {
     color: "#FFFFFF",
     fontSize: 16,
-    fontWeight: "600",
+    fontWeight: "700",
   },
   dividerContainer: {
     flexDirection: "row",
@@ -971,10 +938,6 @@ const styles = StyleSheet.create({
   dividerText: {
     color: "#6B7280",
     fontSize: 14,
-    fontWeight: "300",
-  },
-  socialContainer: {
-    gap: 12,
   },
   socialButton: {
     borderWidth: 1,
@@ -990,7 +953,7 @@ const styles = StyleSheet.create({
   socialButtonText: {
     fontSize: 15,
     color: "#424242",
-    fontWeight: "500",
+    fontWeight: "600",
   },
   bottomRow: {
     marginTop: 24,
@@ -1004,6 +967,6 @@ const styles = StyleSheet.create({
   bottomLink: {
     color: "#4A6FA5",
     fontSize: 14,
-    fontWeight: "600",
+    fontWeight: "700",
   },
 });

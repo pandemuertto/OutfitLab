@@ -19,6 +19,7 @@ const outfitsRoutes = require('./routes/outfits.routes');
 const collectionsRoutes = require('./routes/collections.routes');
 const exploreRoutes = require('./routes/explore.routes');
 const calendarRoutes = require('./routes/calendar.routes');
+const testApi4AiRoutes = require('./routes/test.api4ai.routes');
 
 // 1. INICIALIZAR LA APP PRIMERO
 const app = express();
@@ -66,6 +67,8 @@ app.use('/api/recommend', recommendRoutes);
 
 /* ---------- API de calendario ---------- */
 app.use('/api/calendar', calendarRoutes);
+
+app.use('/api', testApi4AiRoutes);
 
 /* ---------- 404 y errores ---------- */
 app.use((req, res) => {

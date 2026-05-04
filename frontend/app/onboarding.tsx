@@ -1,3 +1,5 @@
+//frontend/app/onboarding.tsx
+// frontend/app/onboarding.tsx
 import React, { useState } from "react";
 import {
   View,
@@ -9,8 +11,9 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
+
+import { useAuth } from "../src/contexts/auth";
 
 import ProgressBar from "../src/components/onboarding/ProgressBar";
 import Step1Style from "../src/components/onboarding/Step1Style";
@@ -30,8 +33,10 @@ export interface OnboardingData {
 
 export default function OnboardingScreen() {
   const router = useRouter();
+  const { completeOnboarding } = useAuth();
 
   const [currentStep, setCurrentStep] = useState(1);
+
   const [data, setData] = useState<OnboardingData>({
     styles: [],
     colors: [],
@@ -54,13 +59,19 @@ export default function OnboardingScreen() {
     }
   };
 
-  const handleSkip = () => {
-    router.replace("/(tabs)");
+  const handleSkip = async () => {
+    try {
+      await completeOnboarding(data);
+      router.replace("/(tabs)");
+    } catch (error) {
+      console.log("Error al saltar onboarding:", error);
+      router.replace("/(tabs)");
+    }
   };
 
   const handleComplete = async () => {
     try {
-      await AsyncStorage.setItem("onboardingData", JSON.stringify(data));
+      await completeOnboarding(data);
       router.replace("/(tabs)");
     } catch (error) {
       console.log("Error guardando onboarding:", error);
@@ -100,6 +111,7 @@ export default function OnboardingScreen() {
             onUpdate={(styles: string[]) => updateData("styles", styles)}
           />
         );
+
       case 2:
         return (
           <Step2Colors
@@ -109,6 +121,7 @@ export default function OnboardingScreen() {
             }
           />
         );
+
       case 3:
         return (
           <Step3Occasions
@@ -118,6 +131,7 @@ export default function OnboardingScreen() {
             }
           />
         );
+
       case 4:
         return (
           <Step4Seasons
@@ -125,6 +139,7 @@ export default function OnboardingScreen() {
             onUpdate={(seasons: string[]) => updateData("seasons", seasons)}
           />
         );
+
       case 5:
         return (
           <Step5Goals
@@ -132,8 +147,10 @@ export default function OnboardingScreen() {
             onUpdate={(goals: string[]) => updateData("goals", goals)}
           />
         );
+
       case 6:
         return <StepComplete onComplete={handleComplete} />;
+
       default:
         return null;
     }
@@ -220,102 +237,93 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    paddingBottom: 24,
   },
   container: {
     flex: 1,
-    paddingHorizontal: 24,
-    paddingTop: 20,
+    padding: 20,
   },
   header: {
-    marginBottom: 24,
+    marginBottom: 20,
   },
   headerTop: {
     flexDirection: "row",
-    alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 18,
+    alignItems: "center",
+    marginBottom: 14,
   },
   headerTitleRow: {
     flexDirection: "row",
     alignItems: "center",
+    gap: 6,
   },
   headerTitle: {
-    marginLeft: 8,
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#1F2A44",
-    letterSpacing: 0.3,
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#1F2937",
   },
   skipText: {
-    fontSize: 12,
-    color: "#9CA3AF",
-    fontWeight: "300",
-    letterSpacing: 0.5,
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#4A6FA5",
   },
   card: {
     backgroundColor: "#FFFFFF",
-    borderRadius: 32,
-    padding: 24,
+    borderRadius: 28,
+    padding: 20,
     shadowColor: "#1F2A44",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.1,
+    shadowRadius: 24,
     elevation: 6,
-    justifyContent: "space-between",
   },
   normalCardHeight: {
-    minHeight: 580,
+    minHeight: 620,
   },
   completeCardHeight: {
-    minHeight: 480,
+    minHeight: 620,
+    justifyContent: "center",
   },
   stepContent: {
     flex: 1,
   },
   navigationContainer: {
     flexDirection: "row",
-    marginTop: 24,
+    alignItems: "center",
+    gap: 12,
+    marginTop: 20,
   },
   backButton: {
-    height: 50,
-    paddingHorizontal: 24,
-    borderWidth: 1,
-    borderColor: "rgba(74,111,165,0.3)",
+    paddingVertical: 14,
+    paddingHorizontal: 18,
     borderRadius: 999,
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 12,
+    backgroundColor: "#EEF3F7",
   },
   backButtonText: {
-    color: "#4A6FA5",
-    fontSize: 14,
-    fontWeight: "600",
+    color: "#4B5563",
+    fontWeight: "700",
   },
   continueWrapper: {
     flex: 1,
   },
   continueButton: {
-    height: 50,
+    paddingVertical: 15,
     borderRadius: 999,
     alignItems: "center",
-    justifyContent: "center",
   },
   continueButtonText: {
     color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "600",
+    fontWeight: "700",
+    fontSize: 15,
   },
   disabledButton: {
-    height: 50,
+    paddingVertical: 15,
     borderRadius: 999,
     alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#E5E7EB",
+    backgroundColor: "#D1D5DB",
   },
   disabledButtonText: {
-    color: "#9CA3AF",
-    fontSize: 14,
-    fontWeight: "600",
+    color: "#6B7280",
+    fontWeight: "700",
+    fontSize: 15,
   },
 });

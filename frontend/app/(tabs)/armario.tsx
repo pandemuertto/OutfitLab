@@ -457,7 +457,6 @@
 //     shadowRadius: 4,
 //   },
 // });
-
 import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
@@ -475,24 +474,28 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import * as ImagePicker from "expo-image-picker";
 
-import { API_URL } from "../../src/api";
 import { useAuth } from "../../src/contexts/auth";
+import {
+  getUserClothes,
+  uploadClothing,
+  Prenda,
+} from "../../src/services/clothingServie";
+import {
+  formatClothingType,
+  formatCategoryLabel,
+} from "../../src/utils/clothingLabels";
 
-type ClothingItem = {
-  id: number;
-  imageUrl: string;
-  type?: string;
-  color?: string;
-  category?: string | null;
-};
+type ClothingItem = Prenda;
 
 const CATEGORY_FILTERS = {
   todos: null as string[] | null,
-  blusas: ["camiseta", "camisa", "blusa", "top", "playera"],
-  vestidos: ["vestido"],
-  pantalones: ["pantalon", "jeans", "shorts", "falda", "leggins"],
-  abrigos: ["abrigo", "chaqueta", "sudadera", "sueter", "cardigan"],
-  zapatos: ["calzado", "tenis", "bota", "sandalia", "tacones", "botín", "botin"],
+  blusas: ["top"],
+  vestidos: ["dress"],
+  pantalones: ["bottom"],
+  abrigos: ["outerwear"],
+  zapatos: ["shoes"],
+  accesorios: ["accessory"],
+  otros: ["other"],
 };
 
 export default function ArmarioScreen() {
@@ -512,13 +515,11 @@ export default function ArmarioScreen() {
 
     setLoading(true);
     try {
-      const response = await fetch(`${API_URL}/api/clothes/user/${user.id}`);
-      const data = await response.json();
-      const clothes = Array.isArray(data) ? data : [];
+      const clothes = await getUserClothes(String(user.id));
       setAllClothes(clothes);
       applyFilters(selectedCategory, searchText, clothes);
     } catch (error) {
-      console.error(error);
+      console.error("Error cargando prendas:", error);
       Alert.alert("Error", "No se pudieron cargar las prendas");
     } finally {
       setLoading(false);
@@ -541,22 +542,25 @@ export default function ArmarioScreen() {
 
     if (allowedCategories) {
       result = result.filter((item) => {
-        const cat = (item.category || "otro").toLowerCase();
+        const cat = (item.category || "other").toLowerCase();
         return allowedCategories.includes(cat);
       });
     }
 
     const normalizedSearch = search.trim().toLowerCase();
+
     if (normalizedSearch) {
       result = result.filter((item) => {
         const type = (item.type || "").toLowerCase();
         const category = (item.category || "").toLowerCase();
         const color = (item.color || "").toLowerCase();
+        const brand = (item.brand || "").toLowerCase();
 
         return (
           type.includes(normalizedSearch) ||
           category.includes(normalizedSearch) ||
-          color.includes(normalizedSearch)
+          color.includes(normalizedSearch) ||
+          brand.includes(normalizedSearch)
         );
       });
     }
@@ -574,20 +578,19 @@ export default function ArmarioScreen() {
     applyFilters(selectedCategory, text);
   };
 
-  const takePhoto = async () => {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== "granted") {
-      Alert.alert(
-        "Permiso denegado",
-        "Necesitas permitir el acceso a la cámara"
-      );
+  const pickFromGallery = async () => {
+    const permission =
+      await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+    if (!permission.granted) {
+      Alert.alert("Permiso requerido", "Necesitas permitir acceso a tus fotos");
       return;
     }
 
-    const result = await ImagePicker.launchCameraAsync({
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"] as any,
       allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.8,
+      quality: 0.9,
     });
 
     if (!result.canceled) {
@@ -595,20 +598,17 @@ export default function ArmarioScreen() {
     }
   };
 
-  const pickFromGallery = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== "granted") {
-      Alert.alert(
-        "Permiso denegado",
-        "Necesitas permitir el acceso a la galería"
-      );
+  const takePhoto = async () => {
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+
+    if (!permission.granted) {
+      Alert.alert("Permiso requerido", "Necesitas permitir acceso a la cámara");
       return;
     }
 
-    const result = await ImagePicker.launchImageLibraryAsync({
+    const result = await ImagePicker.launchCameraAsync({
       allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.8,
+      quality: 0.9,
     });
 
     if (!result.canceled) {
@@ -623,40 +623,20 @@ export default function ArmarioScreen() {
     }
 
     setUploading(true);
+
     try {
-      const form = new FormData();
-      form.append(
-        "image",
-        {
-          uri,
-          type: "image/jpeg",
-          name: `clothing_${Date.now()}.jpg`,
-        } as any
-      );
-      form.append("userId", String(user.id));
+      const created = await uploadClothing(String(user.id), uri);
 
-      const response = await fetch(`${API_URL}/api/clothes/upload`, {
-        method: "POST",
-        body: form,
-      });
+      await loadUserClothes();
 
-      const created = await response.json();
-
-      if (!response.ok) {
-        throw new Error(created?.error || "Upload failed");
-      }
-
-      const newItem = created.prenda || created;
-      const newList = [newItem, ...allClothes];
-
-      setAllClothes(newList);
-      applyFilters(selectedCategory, searchText, newList);
+      const firstItem = created.items?.[0];
 
       Alert.alert(
         "Éxito",
-        `Prenda clasificada como: ${
-          created.classification?.category || newItem.category || "otro"
-        }`
+        created.message ||
+          `Prenda clasificada como: ${
+            firstItem?.type || firstItem?.category || "otro"
+          }`
       );
     } catch (error) {
       console.error("upload error:", error);
@@ -680,7 +660,7 @@ export default function ArmarioScreen() {
       if (!allowed) return allClothes.length;
 
       return allClothes.filter((item) => {
-        const cat = (item.category || "otro").toLowerCase();
+        const cat = (item.category || "other").toLowerCase();
         return allowed.includes(cat);
       }).length;
     };
@@ -751,7 +731,8 @@ export default function ArmarioScreen() {
   };
 
   const renderItem = ({ item, index }: { item: ClothingItem; index: number }) => {
-    const imageHeight = viewMode === "masonry" ? (index % 2 === 0 ? 220 : 170) : 190;
+    const imageHeight =
+      viewMode === "masonry" ? (index % 2 === 0 ? 190 : 155) : 170;
 
     return (
       <View style={styles.itemWrapper}>
@@ -764,13 +745,15 @@ export default function ArmarioScreen() {
 
           <View style={styles.itemInfo}>
             <Text style={styles.itemTitle} numberOfLines={1}>
-              {item.type || item.category || "Prenda"}
+              {formatClothingType(item.type)}
             </Text>
 
             <View style={styles.itemMetaRow}>
               {!!item.category && (
                 <View style={styles.badge}>
-                  <Text style={styles.badgeText}>{item.category}</Text>
+                  <Text style={styles.badgeText}>
+                    {formatCategoryLabel(item.category)}
+                  </Text>
                 </View>
               )}
 
@@ -929,32 +912,34 @@ export default function ArmarioScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#EEF3F7",
-  },
-  listContent: {
-    paddingBottom: 120,
-  },
+  container: { flex: 1, backgroundColor: "#EEF3F7" },
+
   header: {
     paddingTop: 64,
     paddingHorizontal: 24,
-    paddingBottom: 34,
+    paddingBottom: 38,
+    borderBottomLeftRadius: 30,
+    borderBottomRightRadius: 30,
   },
+
   headerTitle: {
-    fontSize: 32,
+    fontSize: 34,
     fontWeight: "600",
     color: "#FFFFFF",
-    marginBottom: 4,
+    marginBottom: 8,
   },
+
   headerSubtitle: {
     fontSize: 14,
     color: "rgba(255,255,255,0.92)",
   },
+
   content: {
+    marginTop: -16,
     paddingHorizontal: 24,
-    marginTop: -14,
+    marginBottom: 12,
   },
+
   searchCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 24,
@@ -969,11 +954,13 @@ const styles = StyleSheet.create({
     shadowRadius: 14,
     elevation: 4,
   },
+
   searchInput: {
     flex: 1,
     fontSize: 15,
     color: "#1F2937",
   },
+
   filterButton: {
     width: 40,
     height: 40,
@@ -983,15 +970,18 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginLeft: 8,
   },
+
   viewRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 18,
   },
+
   viewButtons: {
     flexDirection: "row",
   },
+
   viewButton: {
     width: 38,
     height: 38,
@@ -1001,149 +991,176 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginRight: 8,
   },
+
   viewButtonActive: {
     backgroundColor: "#4A6FA5",
   },
+
   viewLabel: {
     fontSize: 14,
     color: "#6B7280",
+    fontWeight: "500",
   },
+
   categoriesContainer: {
-    paddingBottom: 18,
-    paddingRight: 24,
+    paddingBottom: 6,
+    paddingRight: 12,
   },
+
   categoryPressable: {
     marginRight: 10,
   },
+
   categoryActive: {
     paddingHorizontal: 18,
-    paddingVertical: 11,
+    paddingVertical: 12,
     borderRadius: 999,
   },
+
   categoryActiveText: {
     color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "600",
+    fontSize: 15,
+    fontWeight: "700",
   },
+
   categoryInactive: {
     backgroundColor: "#FFFFFF",
-    borderRadius: 999,
     paddingHorizontal: 18,
-    paddingVertical: 11,
+    paddingVertical: 12,
+    borderRadius: 999,
     borderWidth: 1,
     borderColor: "#E5E7EB",
   },
+
   categoryInactiveText: {
     color: "#4B5563",
-    fontSize: 14,
-    fontWeight: "500",
+    fontSize: 15,
+    fontWeight: "600",
   },
+
+  listContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 112,
+    flexGrow: 1,
+  },
+
   columnWrapper: {
     justifyContent: "space-between",
-    paddingHorizontal: 24,
+    marginBottom: 12,
   },
+
   itemWrapper: {
     width: "48%",
-    marginBottom: 16,
   },
+
   itemCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 22,
     overflow: "hidden",
-    shadowColor: "#1F2A44",
-    shadowOffset: { width: 0, height: 4 },
+    shadowColor: "#0F172A",
     shadowOpacity: 0.06,
-    shadowRadius: 10,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 6 },
+    shadowRadius: 14,
+    elevation: 4,
   },
+
   itemImage: {
     width: "100%",
     backgroundColor: "#E5E7EB",
   },
+
   itemInfo: {
-    padding: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
+
   itemTitle: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: "700",
-    color: "#1F2A44",
-    marginBottom: 8,
+    color: "#172554",
+    marginBottom: 6,
   },
+
   itemMetaRow: {
     flexDirection: "row",
-    alignItems: "center",
     justifyContent: "space-between",
-    gap: 8,
+    alignItems: "center",
   },
+
   badge: {
-    backgroundColor: "rgba(74,111,165,0.10)",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    backgroundColor: "#EEF3F7",
+    paddingHorizontal: 9,
+    paddingVertical: 5,
     borderRadius: 999,
   },
+
   badgeText: {
+    fontSize: 11,
     color: "#4A6FA5",
-    fontSize: 11,
-    fontWeight: "600",
-    textTransform: "capitalize",
-  },
-  itemColor: {
-    fontSize: 11,
-    color: "#6B7280",
-    flexShrink: 1,
-    textTransform: "capitalize",
-  },
-  stateContainer: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 28,
-    paddingTop: 50,
-    paddingBottom: 80,
-  },
-  stateTitle: {
-    fontSize: 20,
     fontWeight: "700",
-    color: "#1F2A44",
+  },
+
+  itemColor: {
+    fontSize: 12,
+    color: "#6B7280",
+    maxWidth: 70,
+  },
+
+  stateContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 28,
+    paddingTop: 40,
+  },
+
+  stateTitle: {
     marginTop: 18,
-    marginBottom: 10,
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#172554",
     textAlign: "center",
   },
+
   stateText: {
-    fontSize: 14,
+    marginTop: 10,
+    fontSize: 15,
     lineHeight: 22,
     color: "#6B7280",
     textAlign: "center",
-    marginBottom: 22,
   },
+
   emptyButtonWrapper: {
-    minWidth: 180,
+    marginTop: 24,
   },
+
   emptyButton: {
-    borderRadius: 999,
+    paddingHorizontal: 24,
     paddingVertical: 14,
-    paddingHorizontal: 22,
-    alignItems: "center",
-    justifyContent: "center",
+    borderRadius: 999,
   },
+
   emptyButtonText: {
     color: "#FFFFFF",
     fontSize: 15,
-    fontWeight: "600",
+    fontWeight: "700",
   },
+
   fabWrapper: {
     position: "absolute",
-    right: 24,
-    bottom: 24,
+    right: 20,
+    bottom: 92,
   },
+
   fab: {
     width: 64,
     height: 64,
-    borderRadius: 999,
-    alignItems: "center",
+    borderRadius: 32,
     justifyContent: "center",
-    shadowColor: "#4A6FA5",
+    alignItems: "center",
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.16,
     shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
     shadowRadius: 14,
     elevation: 8,
   },

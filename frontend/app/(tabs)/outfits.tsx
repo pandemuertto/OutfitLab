@@ -1056,6 +1056,7 @@
 //   },
 // });
 
+//frontend/app/(tabs)/outfits.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
@@ -1084,15 +1085,15 @@ interface Prenda {
   color?: string | null;
   category?: string | null;
   brand?: string | null;
+  confidence?: number | null;
 }
 
 interface GeneratedOutfit {
-  id: number;
-  name?: string | null;
-  occasion: string;
-  dressCode: string;
-  weather: string;
-  items: Prenda[];
+  type: "dress" | "separates";
+  score: number;
+  reason: string;
+  items?: Prenda[];
+  pieces?: Prenda[];
 }
 
 interface OutfitItemDB {
@@ -1162,6 +1163,9 @@ export default function OutfitsScreen() {
 
   const canGenerate = !!occasion && !!weather && !!style;
 
+  const generatedPieces =
+    generatedOutfit?.items || generatedOutfit?.pieces || [];
+
   const getItemImageUrl = (item: { imageUrl?: string | null }) => {
     if (!item?.imageUrl) return null;
     if (item.imageUrl.startsWith("http")) return item.imageUrl;
@@ -1182,7 +1186,7 @@ export default function OutfitsScreen() {
     try {
       if (!user?.id) return;
       const response = await get(`/api/outfits/user/${user.id}`);
-      setSavedOutfits(response.outfits || []);
+      setSavedOutfits(Array.isArray(response) ? response : []);
     } catch (err) {
       console.error("Error cargando outfits guardados:", err);
     }
@@ -1224,7 +1228,9 @@ export default function OutfitsScreen() {
         weather,
       });
 
-      if (response.outfits?.[0]) {
+      console.log("RESPUESTA OUTFITS:", JSON.stringify(response, null, 2));
+
+      if (response?.outfits?.[0]) {
         setGeneratedOutfit(response.outfits[0]);
       } else {
         Alert.alert(
@@ -1235,6 +1241,7 @@ export default function OutfitsScreen() {
     } catch (error: any) {
       console.error("❌ Error generando outfit:", error);
       const backendMessage =
+        error?.response?.data?.error ||
         error?.response?.data?.message ||
         error?.message ||
         "No se pudo generar el outfit. Intenta de nuevo.";
@@ -1248,14 +1255,23 @@ export default function OutfitsScreen() {
     if (!generatedOutfit || !user?.id) return;
 
     try {
-      const itemIds = generatedOutfit.items.map((p) => p.id);
+      const itemIds = (generatedOutfit.items || generatedOutfit.pieces || [])
+        .map((p) => Number(p.id))
+        .filter((id) => Number.isInteger(id) && id > 0);
+
+      console.log("ITEM IDS A GUARDAR:", itemIds);
+
+      if (!itemIds.length) {
+        Alert.alert("Error", "No hay prendas válidas para guardar el outfit.");
+        return;
+      }
 
       await post("/api/outfits", {
         userId: user.id,
-        name: generatedOutfit.name || "Outfit sugerido",
-        occasion: generatedOutfit.occasion,
-        dressCode: generatedOutfit.dressCode,
-        weather: generatedOutfit.weather,
+        name: "Outfit sugerido",
+        occasion,
+        dressCode: style,
+        weather,
         itemIds,
       });
 
@@ -1263,9 +1279,13 @@ export default function OutfitsScreen() {
       await loadSavedOutfits();
     } catch (error: any) {
       console.error("Error guardando outfit:", error);
+      console.log("RESP ERROR GUARDAR:", error?.response?.data);
+
       Alert.alert(
         "Error",
-        error?.response?.data?.message || "No se pudo guardar el outfit."
+        error?.response?.data?.error ||
+          error?.response?.data?.message ||
+          "No se pudo guardar el outfit."
       );
     }
   };
@@ -1290,7 +1310,6 @@ export default function OutfitsScreen() {
       }
 
       const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         aspect: [3, 4],
         quality: 0.8,
@@ -1302,7 +1321,7 @@ export default function OutfitsScreen() {
 
       const formData = new FormData();
       formData.append(
-        "photo",
+        "image",
         {
           uri: photo.uri,
           name: "outfit.jpg",
@@ -1317,9 +1336,6 @@ export default function OutfitsScreen() {
       const res = await fetch(`${API_URL}/api/outfits/${outfitId}/photo`, {
         method: "POST",
         body: formData,
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
       });
 
       if (!res.ok) {
@@ -1447,7 +1463,7 @@ export default function OutfitsScreen() {
     if (!selected) return null;
 
     if (selected.kind === "generated") {
-      return selected.data.items.map((item) => (
+      return (selected.data.items || selected.data.pieces || []).map((item) => (
         <View key={item.id} style={styles.modalItemRow}>
           <Image
             source={{ uri: getItemImageUrl(item) || "" }}
@@ -1502,7 +1518,10 @@ export default function OutfitsScreen() {
 
   return (
     <>
-      <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.scrollContent}
+      >
         <LinearGradient
           colors={["#4A6FA5", "#8FB8A8", "#A78BFA"]}
           start={{ x: 0, y: 0 }}
@@ -1621,7 +1640,10 @@ export default function OutfitsScreen() {
                   <View style={styles.generateButtonDisabled}>
                     {isGenerating ? (
                       <>
-                        <ActivityIndicator color="#FFFFFF" style={{ marginRight: 8 }} />
+                        <ActivityIndicator
+                          color="#FFFFFF"
+                          style={{ marginRight: 8 }}
+                        />
                         <Text style={styles.generateButtonText}>
                           Creando tu outfit...
                         </Text>
@@ -1645,7 +1667,7 @@ export default function OutfitsScreen() {
               </View>
 
               <View style={styles.moodboardGrid}>
-                {generatedOutfit.items.map((item, index) => (
+                {generatedPieces.map((item, index) => (
                   <View key={`${item.id}-${index}`} style={styles.moodboardItem}>
                     <Image
                       source={{ uri: getItemImageUrl(item) || "" }}
@@ -1662,7 +1684,10 @@ export default function OutfitsScreen() {
                       <Text style={styles.moodboardItemTitle} numberOfLines={1}>
                         {item.type || "Prenda"}
                       </Text>
-                      <Text style={styles.moodboardItemSubtitle} numberOfLines={1}>
+                      <Text
+                        style={styles.moodboardItemSubtitle}
+                        numberOfLines={1}
+                      >
                         {item.category || "Categoría"}
                       </Text>
                     </View>
@@ -1671,7 +1696,10 @@ export default function OutfitsScreen() {
               </View>
 
               <View style={styles.resultActions}>
-                <Pressable onPress={saveGeneratedOutfit} style={styles.saveButtonWrapper}>
+                <Pressable
+                  onPress={saveGeneratedOutfit}
+                  style={styles.saveButtonWrapper}
+                >
                   <LinearGradient
                     colors={["#4A6FA5", "#8FB8A8"]}
                     start={{ x: 0, y: 0 }}
@@ -1688,8 +1716,15 @@ export default function OutfitsScreen() {
                   </LinearGradient>
                 </Pressable>
 
-                <Pressable onPress={handleGenerate} style={styles.roundRefreshButton}>
-                  <Ionicons name="refresh-outline" size={20} color="#4A6FA5" />
+                <Pressable
+                  onPress={handleGenerate}
+                  style={styles.roundRefreshButton}
+                >
+                  <Ionicons
+                    name="refresh-outline"
+                    size={20}
+                    color="#4A6FA5"
+                  />
                 </Pressable>
               </View>
             </View>
@@ -1751,7 +1786,8 @@ export default function OutfitsScreen() {
 
             {favoriteOutfits.length === 0 ? (
               <Text style={styles.emptyFavoritesText}>
-                Aún no tienes favoritos. Toca el corazón de un outfit para verlo aquí.
+                Aún no tienes favoritos. Toca el corazón de un outfit para verlo
+                aquí.
               </Text>
             ) : (
               <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -1810,7 +1846,10 @@ export default function OutfitsScreen() {
                 {selected.kind === "saved" && (
                   <>
                     <Pressable
-                      style={[styles.modalActionButton, { backgroundColor: "#0ea5e9" }]}
+                      style={[
+                        styles.modalActionButton,
+                        { backgroundColor: "#0ea5e9" },
+                      ]}
                       onPress={() =>
                         takePhotoAndUpdateOutfit(selected.data.id, false)
                       }
@@ -1827,7 +1866,10 @@ export default function OutfitsScreen() {
                     </Pressable>
 
                     <Pressable
-                      style={[styles.modalActionButton, { backgroundColor: "#4f46e5" }]}
+                      style={[
+                        styles.modalActionButton,
+                        { backgroundColor: "#4f46e5" },
+                      ]}
                       onPress={openPublishModal}
                     >
                       <Ionicons
@@ -1842,7 +1884,10 @@ export default function OutfitsScreen() {
                     </Pressable>
 
                     <Pressable
-                      style={[styles.modalActionButton, { backgroundColor: "#ef4444" }]}
+                      style={[
+                        styles.modalActionButton,
+                        { backgroundColor: "#ef4444" },
+                      ]}
                       onPress={deleteSelectedOutfit}
                     >
                       <Text style={styles.modalActionButtonText}>
@@ -1853,7 +1898,10 @@ export default function OutfitsScreen() {
                 )}
 
                 <Pressable
-                  style={[styles.modalActionButton, { backgroundColor: "#4A6FA5" }]}
+                  style={[
+                    styles.modalActionButton,
+                    { backgroundColor: "#4A6FA5" },
+                  ]}
                   onPress={() => setShowOutfitModal(false)}
                 >
                   <Text style={styles.modalActionButtonText}>Cerrar</Text>

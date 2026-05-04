@@ -1,109 +1,142 @@
 // frontend/src/api.ts
 import axios from "axios";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
-// ¡Borramos process.env para que Expo no use el valor arruinado del caché!
-export const API_URL = "http://192.168.0.103:3000"; 
+export const STORAGE_KEYS = {
+  USER: "@outfitlab:user",
+  TOKEN: "@outfitlab:token",
+  ONBOARDING_DATA: "@outfitlab:onboardingData",
+  ONBOARDING_COMPLETED: "@outfitlab:onboardingCompleted",
+};
+
+const RAW_API_URL = process.env.EXPO_PUBLIC_API_URL || "";
+
+export const API_URL = RAW_API_URL.trim().replace(/\/$/, "");
 
 console.log("🌐 API_URL =", API_URL);
 
-// Cliente Axios configurado con más timeout para debug
+if (!API_URL) {
+  console.warn(
+    "⚠️ EXPO_PUBLIC_API_URL no está configurada. Revisa tu archivo .env del frontend."
+  );
+}
+
 export const api = axios.create({
   baseURL: API_URL,
-  timeout: 30000, // Aumentamos a 30 segundos
+  timeout: 30000,
+  headers: {
+    "Content-Type": "application/json",
+  },
 });
 
-// ======================================================
-// 🔵 GET – para traer datos
-// ======================================================
+api.interceptors.request.use(
+  async (config) => {
+    const token = await AsyncStorage.getItem(STORAGE_KEYS.TOKEN);
+
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
+
+function normalizePath(path: string) {
+  return path.startsWith("/") ? path : `/${path}`;
+}
+
+function getErrorMessage(error: any) {
+  return (
+    error?.response?.data?.error ||
+    error?.response?.data?.message ||
+    error?.message ||
+    "Error en la petición"
+  );
+}
+
 export async function get<T = any>(path: string, config?: any): Promise<T> {
-  if (!path.startsWith("/")) path = `/${path}`;
+  path = normalizePath(path);
+
   console.log(`📡 GET ${API_URL}${path}`);
-  
+
   try {
     const { data } = await api.get(path, {
       ...(config || {}),
     });
+
     return data;
-  } catch (error) {
-    console.error(`❌ GET error ${path}:`, error);
+  } catch (error: any) {
+    console.error(`❌ GET error ${path}:`, getErrorMessage(error));
     throw error;
   }
 }
 
-// ======================================================
-// 🔵 POST – para enviar datos
-// ======================================================
 export async function post<T = any>(
   path: string,
   body?: any,
   config?: any
 ): Promise<T> {
-  if (!path.startsWith("/")) path = `/${path}`;
+  path = normalizePath(path);
+
   console.log(`📡 POST ${API_URL}${path}`, body);
 
   try {
-    const { data } = await api.post(
-      path,
-      body ?? {},
-      {
-        headers: {
-          "Content-Type": "application/json",
-        },
-        ...(config || {}),
-      }
-    );
+    const { data } = await api.post(path, body ?? {}, {
+      ...(config || {}),
+    });
+
     console.log(`✅ POST ${path} éxito:`, data);
     return data;
-  } catch (error) {
-    console.error(`❌ POST error ${path}:`, error);
+  } catch (error: any) {
+    console.error(`❌ POST error ${path}:`, getErrorMessage(error));
     throw error;
   }
 }
 
-export async function put(path: string, body: any) {
+export async function put<T = any>(
+  path: string,
+  body?: any,
+  config?: any
+): Promise<T> {
+  path = normalizePath(path);
+
   console.log(`📡 PUT ${API_URL}${path}`, body);
-  
+
   try {
-    const res = await fetch(`${API_URL}${path}`, {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
+    const { data } = await api.put(path, body ?? {}, {
+      ...(config || {}),
     });
 
-    const data = await res.json();
-    if (!res.ok) {
-      throw new Error(data.message || "Error en la petición");
-    }
     console.log(`✅ PUT ${path} éxito:`, data);
     return data;
-  } catch (error) {
-    console.error(`❌ PUT error ${path}:`, error);
+  } catch (error: any) {
+    console.error(`❌ PUT error ${path}:`, getErrorMessage(error));
     throw error;
   }
 }
 
-export async function del(path: string, body?: any) {
+export async function del<T = any>(
+  path: string,
+  body?: any,
+  config?: any
+): Promise<T> {
+  path = normalizePath(path);
+
   console.log(`📡 DELETE ${API_URL}${path}`, body);
-  
+
   try {
-    const res = await fetch(`${API_URL}${path}`, {
-      method: "DELETE",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: body ? JSON.stringify(body) : undefined,
+    const { data } = await api.delete(path, {
+      data: body ?? {},
+      ...(config || {}),
     });
 
-    const data = await res.json();
-    if (!res.ok) {
-      throw new Error(data.message || "Error en la petición");
-    }
     console.log(`✅ DELETE ${path} éxito:`, data);
     return data;
-  } catch (error) {
-    console.error(`❌ DELETE error ${path}:`, error);
+  } catch (error: any) {
+    console.error(`❌ DELETE error ${path}:`, getErrorMessage(error));
     throw error;
   }
 }
+
+export default api;
