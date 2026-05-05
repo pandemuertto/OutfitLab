@@ -1,7 +1,5 @@
 // backend/routes/clothes.routes.js
 
-// backend/routes/clothes.routes.js
-
 const { Router } = require("express");
 const path = require("path");
 const fs = require("fs").promises;
@@ -11,6 +9,7 @@ const { PrismaClient } = require("@prisma/client");
 const { detectClothesWithApi4AI } = require("../services/api4aiFashion.service");
 const { normalizeClothingLabel } = require("../utils/normalizeClothing");
 const { extractDominantColorFromImage } = require("../services/localColor.service");
+const { importSegmentedFileToUploads } = require("../utils/importSegmentedFile");
 const { segmentClothesWithPythonCrop } = require("../services/pythonSegmentation.service");
 
 const prisma = new PrismaClient();
@@ -140,7 +139,117 @@ router.get("/ping", (_req, res) => {
   });
 });
 
+function bboxArea(detection) {
+  return (detection?.bbox?.width || 0) * (detection?.bbox?.height || 0);
+}
+
+function shouldIgnoreDetection(detection) {
+  const rawLabel = String(detection.label || "").toLowerCase();
+  const area = bboxArea(detection);
+
+  const alwaysAllowAccessories = [
+    "hat",
+    "cap",
+    "bag",
+    "belt",
+    "scarf",
+    "glasses",
+    "sunglasses",
+    "sombrero",
+    "gorra",
+    "bolso",
+    "bufanda",
+    "lentes",
+  ];
+
+  const smallAccessoryTypes = [
+    "necklace",
+    "earring",
+    "jewelry",
+    "collar",
+    "bracelet",
+    "ring",
+  ];
+
+  const isAlwaysAllowed = alwaysAllowAccessories.some((word) =>
+    rawLabel.includes(word)
+  );
+
+  const isSmallAccessory = smallAccessoryTypes.some((word) =>
+    rawLabel.includes(word)
+  );
+
+  if (!isAlwaysAllowed && isSmallAccessory && area < 0.03) {
+    return true;
+  }
+
+  if (area < 0.008) {
+    return true;
+  }
+
+  return false;
+}
+
+function pickMainDetection(detections) {
+  if (!Array.isArray(detections) || detections.length === 0) return null;
+
+  return [...detections].sort((a, b) => {
+    const confDiff = (b.confidence || 0) - (a.confidence || 0);
+    if (Math.abs(confDiff) > 0.05) return confDiff;
+
+    return bboxArea(b) - bboxArea(a);
+  })[0];
+}
+
+async function safeDeleteLocalFile(localPath) {
+  try {
+    if (localPath) await fs.unlink(localPath);
+  } catch (e) {
+    console.warn("No se pudo borrar archivo temporal:", e.message);
+  }
+}
+
+async function detectColorSafe({ imagePath, bbox, fallbackColor }) {
+  if (fallbackColor) return String(fallbackColor).toLowerCase().trim();
+
+  try {
+    const localColor = await extractDominantColorFromImage(imagePath, bbox || null);
+    return localColor?.colorName || null;
+  } catch (e) {
+    console.warn("No se pudo detectar color:", e.message);
+    return null;
+  }
+}
+
+async function createPrenda({
+  userId,
+  imageUrl,
+  type,
+  color,
+  brand,
+  category,
+  confidence,
+}) {
+  return prisma.prenda.create({
+    data: {
+      userId,
+      imageUrl,
+      type: type || null,
+      color: color || null,
+      brand: brand || null,
+      category: category || "other",
+      confidence: confidence ?? null,
+    },
+  });
+}
+
 router.post("/upload", upload.single("image"), async (req, res) => {
+  const tempOriginalPath = req.file
+    ? path.join(__dirname, "..", "uploads", req.file.filename)
+    : null;
+
+  const tempSegmentedFiles = [];
+
   try {
     const { userId, type, color, brand } = req.body;
 
@@ -160,52 +269,39 @@ router.post("/upload", upload.single("image"), async (req, res) => {
       return res.status(404).json({ error: "Usuario no encontrado" });
     }
 
-    const absoluteImagePath = path.join(
-      __dirname,
-      "..",
-      "uploads",
-      req.file.filename
-    );
-
-    const originalRelativeUrl = makeRelativeUploadUrl(req.file.filename);
-    const originalPublicUrl = normalizePublicImageUrl(req, originalRelativeUrl);
-
-    const usePython =
-      String(process.env.USE_PYTHON_SEGMENTATION || "")
-        .trim()
-        .toLowerCase() === "true";
-
+    const absoluteImagePath = path.join(__dirname, "..", "uploads", req.file.filename);
+    const originalRelativeUrl = `/uploads/${req.file.filename}`;
     const savedItems = [];
+    const usePython = String(process.env.USE_PYTHON_SEGMENTATION).trim() === "true";
 
-    console.log("====================================================");
     console.log("[FAST FLOW] imagen:", req.file.filename);
-    console.log("[FAST FLOW] absoluteImagePath:", absoluteImagePath);
-    console.log("[FAST FLOW] originalPublicUrl:", originalPublicUrl);
     console.log("[FAST FLOW] python activo:", usePython);
-    console.log("[FAST FLOW] PYTHON_AI_URL:", process.env.PYTHON_AI_URL);
-    console.log("====================================================");
 
+    // 1) API4AI primero
     const rawDetections = await detectClothesWithApi4AI(absoluteImagePath);
-
     const detections = (rawDetections || []).filter(
       (d) => (d.confidence || 0) >= MIN_CONFIDENCE
     );
 
     console.log("[FAST FLOW] detecciones válidas:", detections.length);
-    console.log("[FAST FLOW] detecciones:", detections);
 
     if (!detections.length) {
-      const detectedColor = await getDetectedColor({
-        color,
-        absoluteImagePath,
-        bbox: null,
-      });
+      let detectedColor = color ? String(color).toLowerCase().trim() : null;
+
+      if (!detectedColor) {
+        try {
+          const localColor = await extractDominantColorFromImage(absoluteImagePath);
+          detectedColor = localColor.colorName;
+        } catch (e) {
+          console.warn("No se pudo detectar color:", e.message);
+        }
+      }
 
       const prenda = await prisma.prenda.create({
         data: {
           userId,
-          imageUrl: originalPublicUrl,
-          type: type || "prenda",
+          imageUrl: originalRelativeUrl,
+          type: type || null,
           color: detectedColor || null,
           brand: brand || null,
           category: "other",
@@ -216,19 +312,64 @@ router.post("/upload", upload.single("image"), async (req, res) => {
       savedItems.push(prenda);
     } else {
       for (const detection of detections) {
-        if (shouldIgnoreDetection(detection)) {
+        const normalized = normalizeClothingLabel(detection.label);
+        const rawLabel = String(detection.label || "").toLowerCase();
+
+        const bboxArea = (detection.bbox?.width || 0) * (detection.bbox?.height || 0);
+
+        const alwaysAllowAccessories = [
+          "hat",
+          "cap",
+          "bag",
+          "belt",
+          "scarf",
+          "glasses",
+          "sunglasses",
+          "sombrero",
+          "gorra",
+          "bolso",
+          "bufanda",
+          "lentes"
+        ];
+
+        const smallAccessoryTypes = [
+          "necklace",
+          "earring",
+          "jewelry",
+          "collar",
+          "bracelet",
+          "ring"
+        ];
+
+        const isAlwaysAllowed = alwaysAllowAccessories.some((word) =>
+          rawLabel.includes(word)
+        );
+
+        const isSmallAccessory = smallAccessoryTypes.some((word) =>
+          rawLabel.includes(word)
+        );
+
+        if (!isAlwaysAllowed && isSmallAccessory && bboxArea < 0.03) {
           console.log(
-            "[FAST FLOW] detección ignorada:",
+            "[FAST FLOW] detección ignorada por accesorio pequeño:",
             detection.label,
-            detection.bbox
+            "| bboxArea =",
+            bboxArea
           );
           continue;
         }
 
-        const normalized = normalizeClothingLabel(detection.label);
+        if (bboxArea < 0.008) {
+          console.log(
+            "[FAST FLOW] detección ignorada por bbox demasiado pequeña:",
+            detection.label,
+            "| bboxArea =",
+            bboxArea
+          );
+          continue;
+        }
 
-        let finalImageUrl = originalPublicUrl;
-        let segmentationMode = "original";
+        let finalImageUrl = originalRelativeUrl;
 
         if (usePython && detection.bbox) {
           try {
@@ -238,68 +379,68 @@ router.post("/upload", upload.single("image"), async (req, res) => {
               normalized.type || detection.label || "prenda"
             );
 
-            if (pyResult?.imageUrl || pyResult?.file_url) {
-              finalImageUrl = pyResult.imageUrl || pyResult.file_url;
-              segmentationMode = pyResult.mode || "python";
-            }
+            console.log("[FAST FLOW] Python crop OK:", pyResult?.file);
 
-            console.log("[FAST FLOW] Segmentación usada:", {
-              label: detection.label,
-              finalImageUrl,
-              segmentationMode,
-            });
+            if (pyResult?.file_path) {
+              const imported = await importSegmentedFileToUploads(pyResult.file_path);
+              finalImageUrl = imported.relativeUrl;
+            }
           } catch (pythonError) {
             console.warn(
               "[FAST FLOW] Python crop falló, se usa imagen original:",
               pythonError.message
             );
-
-            finalImageUrl = originalPublicUrl;
-            segmentationMode = "fallback-original";
           }
-        } else {
-          console.log("[FAST FLOW] Python no usado para:", detection.label);
         }
 
-        finalImageUrl = normalizePublicImageUrl(req, finalImageUrl);
+        let detectedColor = color ? String(color).toLowerCase().trim() : null;
 
-        const detectedColor = await getDetectedColor({
-          color,
-          absoluteImagePath,
-          bbox: detection.bbox,
-        });
+        if (!detectedColor) {
+          try {
+            const imageForColor =
+              finalImageUrl === originalRelativeUrl
+                ? absoluteImagePath
+                : path.join(__dirname, "..", finalImageUrl.replace(/^\/+/, ""));
 
-        const finalType = normalized.type || type || detection.label || "prenda";
-        const finalCategory = normalized.category || "other";
+            const localColor = await extractDominantColorFromImage(
+              imageForColor,
+              finalImageUrl === originalRelativeUrl ? detection.bbox : null
+            );
+
+            detectedColor = localColor.colorName;
+          } catch (e) {
+            console.warn("No se pudo detectar color:", e.message);
+          }
+        }
 
         const prenda = await prisma.prenda.create({
           data: {
             userId,
             imageUrl: finalImageUrl,
-            type: finalType,
+            type: normalized.type || null,
             color: detectedColor || null,
             brand: brand || null,
-            category: finalCategory,
+            category: normalized.category || "other",
             confidence: detection.confidence ?? null,
           },
         });
 
-        savedItems.push({
-          ...prenda,
-          segmentationMode,
-        });
+        savedItems.push(prenda);
       }
     }
 
+    const base = `${req.protocol}://${req.get("host")}`;
+
     return res.status(201).json({
       success: true,
-      message: "Prenda(s) procesada(s) correctamente",
+      message: "Prenda(s) segmentada(s) y guardada(s) correctamente",
       count: savedItems.length,
-      source: "api4ai + python-segmentation",
+      source: "api4ai + python-fast-crop",
       items: savedItems.map((item) => ({
         ...item,
-        imageUrl: normalizePublicImageUrl(req, item.imageUrl),
-        image_url: normalizePublicImageUrl(req, item.imageUrl),
+        imageUrl: item.imageUrl.startsWith("http")
+          ? item.imageUrl
+          : `${base}${item.imageUrl}`,
       })),
     });
   } catch (err) {
@@ -309,6 +450,12 @@ router.post("/upload", upload.single("image"), async (req, res) => {
       error: "No se pudo subir la prenda",
       detail: err.message,
     });
+  } finally {
+    await safeDeleteLocalFile(tempOriginalPath);
+
+    for (const file of tempSegmentedFiles) {
+      await safeDeleteLocalFile(file);
+    }
   }
 });
 
@@ -321,57 +468,15 @@ router.get("/user/:userId", async (req, res) => {
 
     const prendasConUrl = prendas.map((p) => ({
       ...p,
-      imageUrl: normalizePublicImageUrl(req, p.imageUrl),
-      image_url: normalizePublicImageUrl(req, p.imageUrl),
+      imageUrl: p.imageUrl.startsWith("http")
+        ? p.imageUrl
+        : `${base}${p.imageUrl}`,
     }));
 
     return res.json(prendasConUrl);
   } catch (err) {
     console.error("list error:", err);
-
-    return res.status(500).json({
-      error: "No se pudieron obtener las prendas",
-      detail: err.message,
-    });
-  }
-});
-
-router.patch("/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-    const numericId = parseInt(id, 10);
-
-    if (Number.isNaN(numericId)) {
-      return res.status(400).json({ error: "ID inválido" });
-    }
-
-    const { type, category, color, brand } = req.body;
-
-    const updated = await prisma.prenda.update({
-      where: { id: numericId },
-      data: {
-        type: type || null,
-        category: category || null,
-        color: color || null,
-        brand: brand || null,
-      },
-    });
-
-    return res.json({
-      success: true,
-      item: {
-        ...updated,
-        imageUrl: normalizePublicImageUrl(req, updated.imageUrl),
-        image_url: normalizePublicImageUrl(req, updated.imageUrl),
-      },
-    });
-  } catch (err) {
-    console.error("update error:", err);
-
-    return res.status(500).json({
-      error: "No se pudo actualizar la prenda",
-      detail: err.message,
-    });
+    return res.status(500).json({ error: "No se pudieron obtener las prendas" });
   }
 });
 
@@ -392,7 +497,16 @@ router.delete("/:id", async (req, res) => {
       return res.status(404).json({ error: "Prenda no encontrada" });
     }
 
-    await safeDeleteLocalImage(prenda.imageUrl);
+    if (prenda.imageUrl && !prenda.imageUrl.startsWith("http")) {
+      const cleanRelativePath = prenda.imageUrl.replace(/^\/+/, "");
+      const imagePath = path.join(__dirname, "..", cleanRelativePath);
+
+      try {
+        await fs.unlink(imagePath);
+      } catch (e) {
+        console.warn("No se pudo eliminar el archivo:", e.message);
+      }
+    }
 
     await prisma.prenda.delete({
       where: { id: numericId },
