@@ -1,7 +1,10 @@
 // backend/routes/outfits.routes.js
+// backend/routes/outfits.routes.js
+
 const { Router } = require("express");
 const { PrismaClient } = require("@prisma/client");
 const upload = require("../lib/multer");
+const { toPublicUrl, getBackendBaseUrl } = require("../utils/publicUrl");
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -131,25 +134,38 @@ function scoreClothing(item, context) {
   const weather = normalizeWeather(context.weather);
   const style = normalizeDressCode(context.dressCode);
 
-  if (typeof item.confidence === "number") {
-    score += item.confidence * 10;
-  } else {
-    score += 3;
-  }
+  if (typeof item.confidence === "number") score += item.confidence * 10;
+  else score += 3;
 
   if (category === "other") score -= 8;
 
-  /* =========================
-     OCASIÓN
-  ========================= */
   if (occasion === "casual") {
     if (["top", "bottom", "shoes"].includes(category)) score += 8;
-    if (["t-shirt", "shirt", "blouse", "jeans", "pants", "shorts", "shoe"].includes(type)) score += 8;
+    if (
+      ["t-shirt", "shirt", "blouse", "jeans", "pants", "shorts", "shoe"].includes(
+        type
+      )
+    ) {
+      score += 8;
+    }
     if (["hat", "bag"].includes(type)) score += 2;
   }
 
   if (occasion === "trabajo") {
-    if (["shirt", "blouse", "pants", "trousers", "jacket", "blazer", "dress", "shoe"].includes(type)) score += 12;
+    if (
+      [
+        "shirt",
+        "blouse",
+        "pants",
+        "trousers",
+        "jacket",
+        "blazer",
+        "dress",
+        "shoe",
+      ].includes(type)
+    ) {
+      score += 12;
+    }
     if (category === "outerwear") score += 6;
     if (["hoodie", "shorts", "hat"].includes(type)) score -= 10;
   }
@@ -170,11 +186,10 @@ function scoreClothing(item, context) {
     if (["dress", "blazer", "bag"].includes(type)) score -= 8;
   }
 
-  /* =========================
-     CLIMA
-  ========================= */
   if (weather === "sunny") {
-    if (["dress", "t-shirt", "shirt", "blouse", "shorts", "skirt"].includes(type)) score += 7;
+    if (["dress", "t-shirt", "shirt", "blouse", "shorts", "skirt"].includes(type)) {
+      score += 7;
+    }
     if (["jacket", "coat", "outerwear"].includes(type)) score -= 8;
   }
 
@@ -192,47 +207,40 @@ function scoreClothing(item, context) {
     if (["shorts"].includes(type)) score -= 7;
   }
 
-  /* =========================
-     ESTILO
-  ========================= */
   if (style === "minimal") {
-    if (
-      ["shirt", "blouse", "pants", "dress", "jacket", "shoe"].includes(type)
-    ) {
+    if (["shirt", "blouse", "pants", "dress", "jacket", "shoe"].includes(type)) {
       score += 5;
     }
     if (["hat"].includes(type)) score -= 2;
   }
 
   if (style === "boho") {
-    if (["dress", "skirt", "bag", "hat", "blouse"].includes(type)) {
-      score += 6;
-    }
+    if (["dress", "skirt", "bag", "hat", "blouse"].includes(type)) score += 6;
   }
 
   if (style === "clasico") {
-    if (["shirt", "blouse", "pants", "jacket", "dress"].includes(type)) {
-      score += 5;
-    }
+    if (["shirt", "blouse", "pants", "jacket", "dress"].includes(type)) score += 5;
   }
 
   if (style === "elegante") {
-    if (["dress", "blouse", "jacket", "shoe", "bag"].includes(type)) {
-      score += 6;
-    }
+    if (["dress", "blouse", "jacket", "shoe", "bag"].includes(type)) score += 6;
   }
 
   if (style === "moderno") {
-    if (["jacket", "dress", "pants", "shoe"].includes(type)) {
-      score += 4;
-    }
+    if (["jacket", "dress", "pants", "shoe"].includes(type)) score += 4;
   }
 
-  if (Array.isArray(context.favoriteColors) && context.favoriteColors.includes(color)) {
+  if (
+    Array.isArray(context.favoriteColors) &&
+    context.favoriteColors.includes(color)
+  ) {
     score += 5;
   }
 
-  if (Array.isArray(context.dislikedColors) && context.dislikedColors.includes(color)) {
+  if (
+    Array.isArray(context.dislikedColors) &&
+    context.dislikedColors.includes(color)
+  ) {
     score -= 6;
   }
 
@@ -270,10 +278,7 @@ function addBestOptionalPieces(basePieces, grouped, context) {
     .map((item) => ({ ...item, _score: scoreClothing(item, context) }))
     .sort((a, b) => b._score - a._score);
 
-  if (
-    ["cold", "rainy", "cloudy"].includes(weather) &&
-    scoredOuterwear.length
-  ) {
+  if (["cold", "rainy", "cloudy"].includes(weather) && scoredOuterwear.length) {
     pieces.push(scoredOuterwear[0]);
     usedIds.add(scoredOuterwear[0].id);
   }
@@ -284,6 +289,7 @@ function addBestOptionalPieces(basePieces, grouped, context) {
 
   if (shouldAddAccessory && scoredAccessories.length) {
     const bestAccessory = scoredAccessories.find((a) => !usedIds.has(a.id));
+
     if (bestAccessory) {
       pieces.push(bestAccessory);
       usedIds.add(bestAccessory.id);
@@ -313,14 +319,11 @@ function explainOutfit(outfit, context) {
   return reasons.join(", ") + ".";
 }
 
-function normalizePieceForResponse(piece, base) {
-  const imageUrl = piece.imageUrl?.startsWith("http")
-    ? piece.imageUrl
-    : `${base}${piece.imageUrl}`;
-
+function normalizePieceForResponse(piece, req) {
   return {
     id: piece.id,
-    imageUrl,
+    imageUrl: toPublicUrl(req, piece.imageUrl || piece.image_url),
+    image_url: toPublicUrl(req, piece.imageUrl || piece.image_url),
     type: piece.type,
     category: piece.category,
     color: piece.color,
@@ -329,7 +332,35 @@ function normalizePieceForResponse(piece, base) {
   };
 }
 
-function buildOutfitOptions(grouped, context, base) {
+function normalizeOutfitForResponse(req, outfit) {
+  const latestPhoto = outfit.photos?.length
+    ? outfit.photos[outfit.photos.length - 1]
+    : null;
+
+  const photoUrl = latestPhoto ? toPublicUrl(req, latestPhoto.url) : null;
+
+  return {
+    ...outfit,
+    photoUrl,
+    photo_url: photoUrl,
+    items: (outfit.items || []).map((item) => ({
+      ...item,
+      prenda: item.prenda
+        ? {
+            ...item.prenda,
+            imageUrl: toPublicUrl(req, item.prenda.imageUrl || item.prenda.image_url),
+            image_url: toPublicUrl(req, item.prenda.imageUrl || item.prenda.image_url),
+          }
+        : item.prenda,
+    })),
+    photos: (outfit.photos || []).map((photo) => ({
+      ...photo,
+      url: toPublicUrl(req, photo.url),
+    })),
+  };
+}
+
+function buildOutfitOptions(grouped, context, req) {
   const scored = {
     tops: grouped.tops
       .map((item) => ({ ...item, _score: scoreClothing(item, context) }))
@@ -350,9 +381,6 @@ function buildOutfitOptions(grouped, context, base) {
 
   const outfitCandidates = [];
 
-  /* =========================
-     LOOK CON VESTIDO
-  ========================= */
   if (scored.dresses.length) {
     const maxShoes = Math.min(2, scored.shoes.length || 1);
 
@@ -389,9 +417,6 @@ function buildOutfitOptions(grouped, context, base) {
     }
   }
 
-  /* =========================
-     LOOK TOP + BOTTOM + SHOES
-  ========================= */
   if (scored.tops.length && scored.bottoms.length) {
     const topLimit = Math.min(3, scored.tops.length);
     const bottomLimit = Math.min(3, scored.bottoms.length);
@@ -404,7 +429,10 @@ function buildOutfitOptions(grouped, context, base) {
         if (scored.shoes.length) {
           for (let k = 0; k < shoeLimit; k++) {
             const shoe = scored.shoes[k];
-            if ([scored.tops[i].id, scored.bottoms[j].id].includes(shoe.id)) continue;
+
+            if ([scored.tops[i].id, scored.bottoms[j].id].includes(shoe.id)) {
+              continue;
+            }
 
             const basePieces = [scored.tops[i], scored.bottoms[j], shoe];
             const fullPieces = addBestOptionalPieces(basePieces, grouped, context);
@@ -437,9 +465,6 @@ function buildOutfitOptions(grouped, context, base) {
     }
   }
 
-  /* =========================
-     DEDUPE POR COMBINACIÓN
-  ========================= */
   const unique = [];
   const seen = new Set();
 
@@ -450,13 +475,14 @@ function buildOutfitOptions(grouped, context, base) {
       .join("-");
 
     if (seen.has(key)) continue;
+
     seen.add(key);
 
     unique.push({
       type: outfit.type,
       score: Math.round(outfit.score * 100) / 100,
       reason: explainOutfit(outfit, context),
-      pieces: outfit.pieces.map((p) => normalizePieceForResponse(p, base)),
+      pieces: outfit.pieces.map((p) => normalizePieceForResponse(p, req)),
     });
   }
 
@@ -497,7 +523,6 @@ router.post("/generate", async (req, res) => {
     }
 
     const grouped = groupClothesByCategory(clothes);
-    const base = `${req.protocol}://${req.get("host")}`;
 
     const outfits = buildOutfitOptions(
       grouped,
@@ -508,7 +533,7 @@ router.post("/generate", async (req, res) => {
         favoriteColors: favoriteColors.map(safeLower),
         dislikedColors: dislikedColors.map(safeLower),
       },
-      base
+      req
     );
 
     return res.json({
@@ -518,6 +543,7 @@ router.post("/generate", async (req, res) => {
     });
   } catch (error) {
     console.error("generate outfit error:", error);
+
     return res.status(500).json({
       error: "No se pudieron generar outfits",
       detail: error.message,
@@ -538,9 +564,15 @@ router.post("/", async (req, res) => {
       prendaIds,
     } = req.body;
 
-    const idsRaw = Array.isArray(itemIds) && itemIds.length ? itemIds : prendaIds;
+    const idsRaw =
+      Array.isArray(itemIds) && itemIds.length ? itemIds : prendaIds;
+
     const ids = Array.isArray(idsRaw)
-      ? [...new Set(idsRaw.map((id) => Number(id)).filter((id) => Number.isInteger(id)))]
+      ? [
+          ...new Set(
+            idsRaw.map((id) => Number(id)).filter((id) => Number.isInteger(id))
+          ),
+        ]
       : [];
 
     if (!userId || !ids.length) {
@@ -590,10 +622,11 @@ router.post("/", async (req, res) => {
     return res.status(201).json({
       success: true,
       message: "Outfit guardado correctamente",
-      outfit,
+      outfit: normalizeOutfitForResponse(req, outfit),
     });
   } catch (error) {
     console.error("save outfit error:", error);
+
     return res.status(500).json({
       error: "No se pudo guardar el outfit",
       detail: error.message,
@@ -602,9 +635,8 @@ router.post("/", async (req, res) => {
 });
 
 /**
- * IMPORTANTE:
- * tu front manda el archivo en el campo "image"
- * por eso aquí debe ser upload.single("image")
+ * POST /api/outfits/:id/photo
+ * Guarda foto del outfit y opcionalmente publica en Explorar.
  */
 router.post("/:id/photo", upload.single("image"), async (req, res) => {
   try {
@@ -631,11 +663,12 @@ router.post("/:id/photo", upload.single("image"), async (req, res) => {
     }
 
     const relativeUrl = `/uploads/${req.file.filename}`;
+    const publicUrl = toPublicUrl(req, relativeUrl);
 
     const photo = await prisma.outfitPhoto.create({
       data: {
         outfitId: id,
-        url: relativeUrl,
+        url: publicUrl,
       },
     });
 
@@ -647,13 +680,30 @@ router.post("/:id/photo", upload.single("image"), async (req, res) => {
           outfitId: outfit.id,
           userId: outfit.userId,
           title: postTitle || outfit.name || "Outfit sugerido",
-          imageUrl: relativeUrl,
+          imageUrl: publicUrl,
           style: outfit.occasion || null,
+        },
+        include: {
+          user: true,
+          likesList: true,
+          comments: {
+            include: {
+              user: true,
+            },
+          },
+          outfit: {
+            include: {
+              photos: true,
+              items: {
+                include: {
+                  prenda: true,
+                },
+              },
+            },
+          },
         },
       });
     }
-
-    const base = `${req.protocol}://${req.get("host")}`;
 
     return res.status(201).json({
       success: true,
@@ -663,12 +713,19 @@ router.post("/:id/photo", upload.single("image"), async (req, res) => {
           : "Foto guardada correctamente",
       photo: {
         ...photo,
-        url: photo.url.startsWith("http") ? photo.url : `${base}${photo.url}`,
+        url: toPublicUrl(req, photo.url),
       },
-      explorePost,
+      explorePost: explorePost
+        ? {
+            ...explorePost,
+            imageUrl: toPublicUrl(req, explorePost.imageUrl),
+            image_url: toPublicUrl(req, explorePost.imageUrl),
+          }
+        : null,
     });
   } catch (error) {
     console.error("upload outfit photo error:", error);
+
     return res.status(500).json({
       error: "No se pudo subir la foto del outfit",
       detail: error.message,
@@ -678,8 +735,6 @@ router.post("/:id/photo", upload.single("image"), async (req, res) => {
 
 router.get("/user/:userId", async (req, res) => {
   try {
-    const base = `${req.protocol}://${req.get("host")}`;
-
     const outfits = await prisma.outfit.findMany({
       where: { userId: req.params.userId },
       orderBy: { createdAt: "desc" },
@@ -694,39 +749,17 @@ router.get("/user/:userId", async (req, res) => {
       },
     });
 
-    const normalized = outfits.map((outfit) => {
-      const latestPhoto = outfit.photos?.length
-        ? outfit.photos[outfit.photos.length - 1]
-        : null;
-
-      return {
-        ...outfit,
-        photoUrl: latestPhoto
-          ? latestPhoto.url.startsWith("http")
-            ? latestPhoto.url
-            : `${base}${latestPhoto.url}`
-          : null,
-        items: outfit.items.map((item) => ({
-          ...item,
-          prenda: {
-            ...item.prenda,
-            imageUrl: item.prenda.imageUrl.startsWith("http")
-              ? item.prenda.imageUrl
-              : `${base}${item.prenda.imageUrl}`,
-          },
-        })),
-        photos: outfit.photos.map((photo) => ({
-          ...photo,
-          url: photo.url.startsWith("http") ? photo.url : `${base}${photo.url}`,
-        })),
-      };
-    });
+    const normalized = outfits.map((outfit) =>
+      normalizeOutfitForResponse(req, outfit)
+    );
 
     return res.json(normalized);
   } catch (error) {
     console.error("list outfits error:", error);
+
     return res.status(500).json({
       error: "No se pudieron obtener los outfits",
+      detail: error.message,
     });
   }
 });
@@ -745,15 +778,25 @@ router.patch("/:id", async (req, res) => {
         weather: weather ?? undefined,
         collectionId: collectionId ?? undefined,
       },
+      include: {
+        collection: true,
+        items: {
+          include: {
+            prenda: true,
+          },
+        },
+        photos: true,
+      },
     });
 
     return res.json({
       success: true,
       message: "Outfit actualizado correctamente",
-      outfit,
+      outfit: normalizeOutfitForResponse(req, outfit),
     });
   } catch (error) {
     console.error("update outfit error:", error);
+
     return res.status(500).json({
       error: "No se pudo actualizar el outfit",
       detail: error.message,
@@ -775,6 +818,7 @@ router.delete("/:id", async (req, res) => {
     });
   } catch (error) {
     console.error("delete outfit error:", error);
+
     return res.status(500).json({
       error: "No se pudo eliminar el outfit",
       detail: error.message,

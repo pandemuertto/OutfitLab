@@ -1,4 +1,6 @@
 // frontend/src/api.ts
+// frontend/src/api.ts
+
 import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
@@ -23,7 +25,7 @@ if (!API_URL) {
 
 export const api = axios.create({
   baseURL: API_URL,
-  timeout: 30000,
+  timeout: 60000,
   headers: {
     "Content-Type": "application/json",
   },
@@ -47,9 +49,14 @@ function normalizePath(path: string) {
 }
 
 function getErrorMessage(error: any) {
+  if (error?.message === "Network Error") {
+    return "No se pudo conectar con el servidor. Puede estar despertando en Render.";
+  }
+
   return (
     error?.response?.data?.error ||
     error?.response?.data?.message ||
+    error?.response?.data?.detail ||
     error?.message ||
     "Error en la petición"
   );

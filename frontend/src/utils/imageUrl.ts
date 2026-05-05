@@ -2,13 +2,6 @@
 
 import { API_URL } from "../api";
 
-/**
- * Convierte rutas relativas como:
- * /uploads/archivo.jpg
- *
- * En URLs completas como:
- * https://closi-backend.onrender.com/uploads/archivo.jpg
- */
 export function normalizeImageUrl(rawUrl?: string | null): string | null {
   if (!rawUrl) return null;
 
@@ -25,9 +18,6 @@ export function normalizeImageUrl(rawUrl?: string | null): string | null {
   return `${API_URL}${cleanPath}`;
 }
 
-/**
- * Útil cuando quieres mostrar una imagen solo si existe.
- */
 export function getImageSource(rawUrl?: string | null) {
   const normalized = normalizeImageUrl(rawUrl);
 

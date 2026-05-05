@@ -1,27 +1,28 @@
 // backend/src/routes/explore.routes.js
 // backend/routes/explore.routes.js
+
 const { Router } = require("express");
 const { PrismaClient } = require("@prisma/client");
+const { toPublicUrl } = require("../utils/publicUrl");
 
 const router = Router();
 const prisma = new PrismaClient();
 
-function buildFullUrl(req, url) {
-  if (!url) return null;
-  if (url.startsWith("http")) return url;
-
-  const base = `${req.protocol}://${req.get("host")}`;
-  return `${base}${url}`;
-}
-
 function normalizePost(req, post) {
+  if (!post) return null;
+
+  const normalizedImage = toPublicUrl(req, post.imageUrl || post.image_url);
+
   return {
     ...post,
-    imageUrl: buildFullUrl(req, post.imageUrl),
+    imageUrl: normalizedImage,
+    image_url: normalizedImage,
     likes: post.likes ?? 0,
     saves: post.saves ?? 0,
     likesList: post.likesList || [],
     comments: post.comments || [],
+    userId: post.userId || post.user_id,
+    user_id: post.user_id || post.userId,
     user: post.user || {
       id: post.userId,
       name: "Usuario",
@@ -31,14 +32,21 @@ function normalizePost(req, post) {
           ...post.outfit,
           photos: (post.outfit.photos || []).map((photo) => ({
             ...photo,
-            url: buildFullUrl(req, photo.url),
+            url: toPublicUrl(req, photo.url),
           })),
           items: (post.outfit.items || []).map((item) => ({
             ...item,
             prenda: item.prenda
               ? {
                   ...item.prenda,
-                  imageUrl: buildFullUrl(req, item.prenda.imageUrl),
+                  imageUrl: toPublicUrl(
+                    req,
+                    item.prenda.imageUrl || item.prenda.image_url
+                  ),
+                  image_url: toPublicUrl(
+                    req,
+                    item.prenda.imageUrl || item.prenda.image_url
+                  ),
                 }
               : item.prenda,
           })),
@@ -135,9 +143,7 @@ router.post("/outfits/:id/like", async (req, res) => {
     }
 
     const post = await prisma.explorePost.findUnique({
-      where: {
-        id,
-      },
+      where: { id },
     });
 
     if (!post) {
@@ -163,9 +169,7 @@ router.post("/outfits/:id/like", async (req, res) => {
       });
 
       await prisma.explorePost.update({
-        where: {
-          id,
-        },
+        where: { id },
         data: {
           likes: {
             decrement: post.likes > 0 ? 1 : 0,
@@ -183,9 +187,7 @@ router.post("/outfits/:id/like", async (req, res) => {
       });
 
       await prisma.explorePost.update({
-        where: {
-          id,
-        },
+        where: { id },
         data: {
           likes: {
             increment: 1,
@@ -197,9 +199,7 @@ router.post("/outfits/:id/like", async (req, res) => {
     }
 
     const updatedPost = await prisma.explorePost.findUnique({
-      where: {
-        id,
-      },
+      where: { id },
       include: {
         user: true,
         likesList: true,
@@ -261,9 +261,7 @@ router.post("/outfits/:id/comments", async (req, res) => {
     }
 
     const post = await prisma.explorePost.findUnique({
-      where: {
-        id,
-      },
+      where: { id },
     });
 
     if (!post) {
@@ -314,9 +312,7 @@ router.put("/outfits/:id", async (req, res) => {
     const { title, style } = req.body || {};
 
     const post = await prisma.explorePost.findUnique({
-      where: {
-        id,
-      },
+      where: { id },
     });
 
     if (!post) {
@@ -326,9 +322,7 @@ router.put("/outfits/:id", async (req, res) => {
     }
 
     const updated = await prisma.explorePost.update({
-      where: {
-        id,
-      },
+      where: { id },
       data: {
         title: title ?? undefined,
         style: style ?? undefined,
@@ -381,9 +375,7 @@ router.delete("/outfits/:id", async (req, res) => {
     const { id } = req.params;
 
     const post = await prisma.explorePost.findUnique({
-      where: {
-        id,
-      },
+      where: { id },
     });
 
     if (!post) {
@@ -393,9 +385,7 @@ router.delete("/outfits/:id", async (req, res) => {
     }
 
     await prisma.explorePost.delete({
-      where: {
-        id,
-      },
+      where: { id },
     });
 
     return res.json({

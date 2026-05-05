@@ -20,6 +20,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as ImagePicker from "expo-image-picker";
 
 import { api, API_URL } from "../src/api";
+import { normalizeImageUrl } from "../src/utils/imageUrl";
 import { useAuth } from "../src/contexts/auth";
 
 type Preferences = {
@@ -50,9 +51,7 @@ const STYLE_OPTIONS = [
 ];
 
 function buildImageUrl(url?: string | null) {
-  if (!url) return null;
-  if (url.startsWith("http")) return url;
-  return `${API_URL}${url}`;
+  return normalizeImageUrl(url);
 }
 
 export default function Configuracion() {
@@ -277,7 +276,8 @@ export default function Configuracion() {
         throw new Error(data?.error || "No se pudo subir la foto");
       }
 
-      const newAvatarUrl = data?.user?.avatarUrl || imageUri;
+      const newAvatarUrl =
+        normalizeImageUrl(data?.user?.avatarUrl || data?.user?.avatar_url) || imageUri;
 
       setProfilePhotoUrl(newAvatarUrl);
 
@@ -454,7 +454,7 @@ export default function Configuracion() {
             <View style={styles.avatarPreview}>
               {profilePhotoUrl ? (
                 <Image
-                  source={{ uri: profilePhotoUrl }}
+                  source={{ uri: normalizeImageUrl(profilePhotoUrl) || profilePhotoUrl }}
                   style={styles.avatarImage}
                   resizeMode="cover"
                 />

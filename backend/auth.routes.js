@@ -1,5 +1,6 @@
 // backend/auth.routes.js
 // backend/auth.routes.js
+
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
@@ -8,6 +9,7 @@ const { PrismaClient } = require("@prisma/client");
 
 const upload = require("./lib/multer");
 const repo = require("./users.pg");
+const { toPublicUrl } = require("./utils/publicUrl");
 
 const r = express.Router();
 const prisma = new PrismaClient();
@@ -20,12 +22,16 @@ function sign(userId) {
   });
 }
 
-function buildFullUrl(req, url) {
-  if (!url) return null;
-  if (url.startsWith("http")) return url;
+function normalizeUserForResponse(req, user) {
+  if (!user) return null;
 
-  const base = `${req.protocol}://${req.get("host")}`;
-  return `${base}${url}`;
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    avatarUrl: toPublicUrl(req, user.avatarUrl),
+    avatar_url: toPublicUrl(req, user.avatarUrl),
+  };
 }
 
 async function getUserWithAvatar(req, user) {
@@ -46,15 +52,11 @@ async function getUserWithAvatar(req, user) {
         email: user.email,
         name: user.name,
         avatarUrl: null,
+        avatar_url: null,
       };
     }
 
-    return {
-      id: dbUser.id,
-      email: dbUser.email,
-      name: dbUser.name,
-      avatarUrl: buildFullUrl(req, dbUser.avatarUrl),
-    };
+    return normalizeUserForResponse(req, dbUser);
   } catch (error) {
     console.warn("No se pudo cargar avatarUrl:", error.message);
 
@@ -63,6 +65,7 @@ async function getUserWithAvatar(req, user) {
       email: user.email,
       name: user.name,
       avatarUrl: null,
+      avatar_url: null,
     };
   }
 }
@@ -92,14 +95,19 @@ r.post("/register", async (req, res) => {
       passwordHash: hash,
     });
 
+    const token = sign(u.id);
+
     return res.json({
       success: true,
+      token,
       user: {
         id: u.id,
         email: u.email,
         name: u.name,
         avatarUrl: null,
+        avatar_url: null,
       },
+      isNewUser: true,
     });
   } catch (e) {
     console.error("ERROR /auth/register:", e);
@@ -146,6 +154,7 @@ r.post("/login", async (req, res) => {
     return res.json({
       token,
       user: userWithAvatar,
+      isNewUser: false,
     });
   } catch (e) {
     console.error("ERROR /auth/login:", e);
@@ -181,6 +190,7 @@ r.post("/google", async (req, res) => {
     const name = payload.name || "";
 
     let u = await repo.findByProvider(provider, providerId);
+    let isNewUser = false;
 
     if (!u) {
       const existing = email ? await repo.findByEmail(email) : null;
@@ -188,6 +198,7 @@ r.post("/google", async (req, res) => {
       if (existing) {
         await repo.linkProvider(existing.id, provider, providerId);
         u = existing;
+        isNewUser = false;
       } else {
         const created = await repo.createSocial({
           name,
@@ -196,6 +207,7 @@ r.post("/google", async (req, res) => {
 
         await repo.linkProvider(created.id, provider, providerId);
         u = created;
+        isNewUser = true;
       }
     }
 
@@ -205,6 +217,7 @@ r.post("/google", async (req, res) => {
     return res.json({
       token,
       user: userWithAvatar,
+      isNewUser,
     });
   } catch (e) {
     console.error("❌ ERROR /auth/google:", e);
@@ -246,10 +259,7 @@ r.patch("/profile", async (req, res) => {
     return res.json({
       success: true,
       message: "Perfil actualizado correctamente",
-      user: {
-        ...updatedUser,
-        avatarUrl: buildFullUrl(req, updatedUser.avatarUrl),
-      },
+      user: normalizeUserForResponse(req, updatedUser),
     });
   } catch (e) {
     console.error("ERROR /auth/profile:", e);
@@ -282,11 +292,12 @@ r.post("/profile-photo", upload.single("image"), async (req, res) => {
     }
 
     const relativeUrl = `/uploads/${req.file.filename}`;
+    const publicUrl = toPublicUrl(req, relativeUrl);
 
     const updatedUser = await prisma.usuario.update({
       where: { id: userId },
       data: {
-        avatarUrl: relativeUrl,
+        avatarUrl: publicUrl,
       },
       select: {
         id: true,
@@ -299,10 +310,7 @@ r.post("/profile-photo", upload.single("image"), async (req, res) => {
     return res.json({
       success: true,
       message: "Foto de perfil actualizada",
-      user: {
-        ...updatedUser,
-        avatarUrl: buildFullUrl(req, updatedUser.avatarUrl),
-      },
+      user: normalizeUserForResponse(req, updatedUser),
     });
   } catch (e) {
     console.error("ERROR /auth/profile-photo:", e);
