@@ -1,3 +1,5 @@
+// backend/routes/clothes.routes.js
+
 const { Router } = require("express");
 const path = require("path");
 const fs = require("fs").promises;
@@ -7,8 +9,14 @@ const { PrismaClient } = require("@prisma/client");
 const { detectClothesWithApi4AI } = require("../services/api4aiFashion.service");
 const { normalizeClothingLabel } = require("../utils/normalizeClothing");
 const { extractDominantColorFromImage } = require("../services/localColor.service");
-const { importSegmentedFileToUploads } = require("../utils/importSegmentedFile");
-const { segmentClothesWithPythonCrop } = require("../services/pythonSegmentation.service");
+const {
+  segmentClothesWithPythonCrop,
+  getSegmentedBufferFromPythonResult,
+} = require("../services/pythonSegmentation.service");
+const {
+  uploadLocalFileToSupabase,
+  uploadBufferToSupabase,
+} = require("../services/supabaseStorage.service");
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -19,7 +27,117 @@ router.get("/ping", (_req, res) => {
   res.json({ ok: true, at: new Date().toISOString() });
 });
 
+function bboxArea(detection) {
+  return (detection?.bbox?.width || 0) * (detection?.bbox?.height || 0);
+}
+
+function shouldIgnoreDetection(detection) {
+  const rawLabel = String(detection.label || "").toLowerCase();
+  const area = bboxArea(detection);
+
+  const alwaysAllowAccessories = [
+    "hat",
+    "cap",
+    "bag",
+    "belt",
+    "scarf",
+    "glasses",
+    "sunglasses",
+    "sombrero",
+    "gorra",
+    "bolso",
+    "bufanda",
+    "lentes",
+  ];
+
+  const smallAccessoryTypes = [
+    "necklace",
+    "earring",
+    "jewelry",
+    "collar",
+    "bracelet",
+    "ring",
+  ];
+
+  const isAlwaysAllowed = alwaysAllowAccessories.some((word) =>
+    rawLabel.includes(word)
+  );
+
+  const isSmallAccessory = smallAccessoryTypes.some((word) =>
+    rawLabel.includes(word)
+  );
+
+  if (!isAlwaysAllowed && isSmallAccessory && area < 0.03) {
+    return true;
+  }
+
+  if (area < 0.008) {
+    return true;
+  }
+
+  return false;
+}
+
+function pickMainDetection(detections) {
+  if (!Array.isArray(detections) || detections.length === 0) return null;
+
+  return [...detections].sort((a, b) => {
+    const confDiff = (b.confidence || 0) - (a.confidence || 0);
+    if (Math.abs(confDiff) > 0.05) return confDiff;
+
+    return bboxArea(b) - bboxArea(a);
+  })[0];
+}
+
+async function safeDeleteLocalFile(localPath) {
+  try {
+    if (localPath) await fs.unlink(localPath);
+  } catch (e) {
+    console.warn("No se pudo borrar archivo temporal:", e.message);
+  }
+}
+
+async function detectColorSafe({ imagePath, bbox, fallbackColor }) {
+  if (fallbackColor) return String(fallbackColor).toLowerCase().trim();
+
+  try {
+    const localColor = await extractDominantColorFromImage(imagePath, bbox || null);
+    return localColor?.colorName || null;
+  } catch (e) {
+    console.warn("No se pudo detectar color:", e.message);
+    return null;
+  }
+}
+
+async function createPrenda({
+  userId,
+  imageUrl,
+  type,
+  color,
+  brand,
+  category,
+  confidence,
+}) {
+  return prisma.prenda.create({
+    data: {
+      userId,
+      imageUrl,
+      type: type || null,
+      color: color || null,
+      brand: brand || null,
+      category: category || "other",
+      confidence: confidence ?? null,
+    },
+  });
+}
+
 router.post("/upload", upload.single("image"), async (req, res) => {
+  const tempOriginalPath = req.file
+    ? path.join(__dirname, "..", "uploads", req.file.filename)
+    : null;
+
+  const tempSegmentedFiles = [];
+
   try {
     const { userId, type, color, brand } = req.body;
 
@@ -39,209 +157,244 @@ router.post("/upload", upload.single("image"), async (req, res) => {
       return res.status(404).json({ error: "Usuario no encontrado" });
     }
 
-    const absoluteImagePath = path.join(__dirname, "..", "uploads", req.file.filename);
-    const originalRelativeUrl = `/uploads/${req.file.filename}`;
+    const usePython =
+      String(process.env.USE_PYTHON_SEGMENTATION || "").trim() === "true";
+
+    console.log("[CLOTHES] imagen temporal:", req.file.filename);
+    console.log("[CLOTHES] python activo:", usePython);
+    console.log("[CLOTHES] usando Supabase Storage");
+
+    const originalUpload = await uploadLocalFileToSupabase({
+      localPath: tempOriginalPath,
+      folder: "clothes/original",
+      userId,
+      fileName: req.file.originalname || req.file.filename,
+    });
+
+    const originalPublicUrl = originalUpload.publicUrl;
+
+    console.log("[CLOTHES] original en Supabase:", originalPublicUrl);
+
+    const rawDetections = await detectClothesWithApi4AI(tempOriginalPath);
+
+    let detections = (rawDetections || [])
+      .filter((d) => (d.confidence || 0) >= MIN_CONFIDENCE)
+      .filter((d) => !shouldIgnoreDetection(d));
+
+    console.log("[CLOTHES] detecciones válidas:", detections.length);
+
     const savedItems = [];
-    const usePython = String(process.env.USE_PYTHON_SEGMENTATION).trim() === "true";
 
-    console.log("[FAST FLOW] imagen:", req.file.filename);
-    console.log("[FAST FLOW] python activo:", usePython);
-
-    // 1) API4AI primero
-    const rawDetections = await detectClothesWithApi4AI(absoluteImagePath);
-    const detections = (rawDetections || []).filter(
-      (d) => (d.confidence || 0) >= MIN_CONFIDENCE
-    );
-
-    console.log("[FAST FLOW] detecciones válidas:", detections.length);
-
+    // Caso 1: no hay detecciones
     if (!detections.length) {
-      let detectedColor = color ? String(color).toLowerCase().trim() : null;
+      const detectedColor = await detectColorSafe({
+        imagePath: tempOriginalPath,
+        bbox: null,
+        fallbackColor: color,
+      });
 
-      if (!detectedColor) {
-        try {
-          const localColor = await extractDominantColorFromImage(absoluteImagePath);
-          detectedColor = localColor.colorName;
-        } catch (e) {
-          console.warn("No se pudo detectar color:", e.message);
-        }
-      }
-
-      const prenda = await prisma.prenda.create({
-        data: {
-          userId,
-          imageUrl: originalRelativeUrl,
-          type: type || null,
-          color: detectedColor || null,
-          brand: brand || null,
-          category: "other",
-          confidence: null,
-        },
+      const prenda = await createPrenda({
+        userId,
+        imageUrl: originalPublicUrl,
+        type: type || null,
+        color: detectedColor,
+        brand,
+        category: "other",
+        confidence: null,
       });
 
       savedItems.push(prenda);
-    } else {
-      for (const detection of detections) {
-        const normalized = normalizeClothingLabel(detection.label);
-        const rawLabel = String(detection.label || "").toLowerCase();
 
-        const bboxArea = (detection.bbox?.width || 0) * (detection.bbox?.height || 0);
+      return res.status(201).json({
+        success: true,
+        message: "Prenda guardada sin detecciones",
+        count: savedItems.length,
+        source: "original-storage",
+        items: savedItems,
+        detections: [],
+      });
+    }
 
-        const alwaysAllowAccessories = [
-          "hat",
-          "cap",
-          "bag",
-          "belt",
-          "scarf",
-          "glasses",
-          "sunglasses",
-          "sombrero",
-          "gorra",
-          "bolso",
-          "bufanda",
-          "lentes"
-        ];
+    // Caso 2: Python desactivado -> guardar solo detección principal
+    if (!usePython) {
+      const mainDetection = pickMainDetection(detections);
+      const normalized = normalizeClothingLabel(mainDetection.label);
 
-        const smallAccessoryTypes = [
-          "necklace",
-          "earring",
-          "jewelry",
-          "collar",
-          "bracelet",
-          "ring"
-        ];
+      const detectedColor = await detectColorSafe({
+        imagePath: tempOriginalPath,
+        bbox: mainDetection.bbox || null,
+        fallbackColor: color,
+      });
 
-        const isAlwaysAllowed = alwaysAllowAccessories.some((word) =>
-          rawLabel.includes(word)
+      const prenda = await createPrenda({
+        userId,
+        imageUrl: originalPublicUrl,
+        type: type || normalized.type || null,
+        color: detectedColor,
+        brand,
+        category: normalized.category || "other",
+        confidence: mainDetection.confidence ?? null,
+      });
+
+      savedItems.push(prenda);
+
+      return res.status(201).json({
+        success: true,
+        message: "Prenda principal guardada sin segmentación",
+        count: savedItems.length,
+        source: "api4ai-main-detection-storage",
+        items: savedItems,
+        detections,
+      });
+    }
+
+    // Caso 3: Python activo -> intentar guardar cada detección segmentada
+    for (const detection of detections) {
+      const normalized = normalizeClothingLabel(detection.label);
+
+      if (!detection.bbox) {
+        console.log("[CLOTHES] detección sin bbox ignorada:", detection.label);
+        continue;
+      }
+
+      try {
+        const pyResult = await segmentClothesWithPythonCrop(
+          tempOriginalPath,
+          detection.bbox,
+          normalized.type || detection.label || "prenda"
         );
 
-        const isSmallAccessory = smallAccessoryTypes.some((word) =>
-          rawLabel.includes(word)
+        const segmentedBuffer = getSegmentedBufferFromPythonResult(pyResult);
+
+        if (!segmentedBuffer) {
+          throw new Error("Python no devolvió image_base64");
+        }
+
+        const fileName = `seg_${normalized.type || "prenda"}_${Date.now()}.png`;
+
+        const segmentedUpload = await uploadBufferToSupabase({
+          buffer: segmentedBuffer,
+          folder: "clothes/segmented",
+          userId,
+          fileName,
+          contentType: "image/png",
+        });
+
+        console.log(
+          "[CLOTHES] segmentada en Supabase:",
+          segmentedUpload.publicUrl
         );
 
-        if (!isAlwaysAllowed && isSmallAccessory && bboxArea < 0.03) {
-          console.log(
-            "[FAST FLOW] detección ignorada por accesorio pequeño:",
-            detection.label,
-            "| bboxArea =",
-            bboxArea
-          );
-          continue;
-        }
+        const tempSegmentedPath = path.join(
+          __dirname,
+          "..",
+          "uploads",
+          `tmp_${fileName}`
+        );
 
-        if (bboxArea < 0.008) {
-          console.log(
-            "[FAST FLOW] detección ignorada por bbox demasiado pequeña:",
-            detection.label,
-            "| bboxArea =",
-            bboxArea
-          );
-          continue;
-        }
+        await fs.writeFile(tempSegmentedPath, segmentedBuffer);
+        tempSegmentedFiles.push(tempSegmentedPath);
 
-        let finalImageUrl = originalRelativeUrl;
+        const detectedColor = await detectColorSafe({
+          imagePath: tempSegmentedPath,
+          bbox: null,
+          fallbackColor: color,
+        });
 
-        if (usePython && detection.bbox) {
-          try {
-            const pyResult = await segmentClothesWithPythonCrop(
-              absoluteImagePath,
-              detection.bbox,
-              normalized.type || detection.label || "prenda"
-            );
-
-            console.log("[FAST FLOW] Python crop OK:", pyResult?.file);
-
-            if (pyResult?.file_path) {
-              const imported = await importSegmentedFileToUploads(pyResult.file_path);
-              finalImageUrl = imported.relativeUrl;
-            }
-          } catch (pythonError) {
-            console.warn(
-              "[FAST FLOW] Python crop falló, se usa imagen original:",
-              pythonError.message
-            );
-          }
-        }
-
-        let detectedColor = color ? String(color).toLowerCase().trim() : null;
-
-        if (!detectedColor) {
-          try {
-            const imageForColor =
-              finalImageUrl === originalRelativeUrl
-                ? absoluteImagePath
-                : path.join(__dirname, "..", finalImageUrl.replace(/^\/+/, ""));
-
-            const localColor = await extractDominantColorFromImage(
-              imageForColor,
-              finalImageUrl === originalRelativeUrl ? detection.bbox : null
-            );
-
-            detectedColor = localColor.colorName;
-          } catch (e) {
-            console.warn("No se pudo detectar color:", e.message);
-          }
-        }
-
-        const prenda = await prisma.prenda.create({
-          data: {
-            userId,
-            imageUrl: finalImageUrl,
-            type: normalized.type || null,
-            color: detectedColor || null,
-            brand: brand || null,
-            category: normalized.category || "other",
-            confidence: detection.confidence ?? null,
-          },
+        const prenda = await createPrenda({
+          userId,
+          imageUrl: segmentedUpload.publicUrl,
+          type: normalized.type || null,
+          color: detectedColor,
+          brand,
+          category: normalized.category || "other",
+          confidence: detection.confidence ?? null,
         });
 
         savedItems.push(prenda);
+      } catch (pythonError) {
+        console.warn(
+          "[CLOTHES] Python/Storage falló para detección:",
+          detection.label,
+          "|",
+          pythonError.message
+        );
       }
     }
 
-    const base = `${req.protocol}://${req.get("host")}`;
+    // Si Python falló en todas, guardar solo una prenda principal con la original
+    if (!savedItems.length) {
+      const mainDetection = pickMainDetection(detections);
+      const normalized = normalizeClothingLabel(mainDetection.label);
+
+      const detectedColor = await detectColorSafe({
+        imagePath: tempOriginalPath,
+        bbox: mainDetection.bbox || null,
+        fallbackColor: color,
+      });
+
+      const prenda = await createPrenda({
+        userId,
+        imageUrl: originalPublicUrl,
+        type: type || normalized.type || null,
+        color: detectedColor,
+        brand,
+        category: normalized.category || "other",
+        confidence: mainDetection.confidence ?? null,
+      });
+
+      savedItems.push(prenda);
+
+      return res.status(201).json({
+        success: true,
+        message:
+          "Python falló, se guardó solo la prenda principal con imagen original",
+        count: savedItems.length,
+        source: "fallback-main-original-storage",
+        items: savedItems,
+        detections,
+      });
+    }
 
     return res.status(201).json({
       success: true,
-      message: "Prenda(s) procesada(s) correctamente",
+      message: "Prenda(s) segmentada(s) y guardada(s) correctamente",
       count: savedItems.length,
-      source: "api4ai + python-fast-crop",
-      items: savedItems.map((item) => ({
-        ...item,
-        imageUrl: item.imageUrl.startsWith("http")
-          ? item.imageUrl
-          : `${base}${item.imageUrl}`,
-      })),
+      source: "api4ai + python + supabase-storage",
+      items: savedItems,
+      detections,
     });
   } catch (err) {
     console.error("ERROR GENERAL /upload:", err);
+
     return res.status(500).json({
       error: "No se pudo subir la prenda",
       detail: err.message,
     });
+  } finally {
+    await safeDeleteLocalFile(tempOriginalPath);
+
+    for (const file of tempSegmentedFiles) {
+      await safeDeleteLocalFile(file);
+    }
   }
 });
 
 router.get("/user/:userId", async (req, res) => {
   try {
-    const base = `${req.protocol}://${req.get("host")}`;
-
     const prendas = await prisma.prenda.findMany({
       where: { userId: req.params.userId },
       orderBy: { createdAt: "desc" },
     });
 
-    const prendasConUrl = prendas.map((p) => ({
-      ...p,
-      imageUrl: p.imageUrl.startsWith("http")
-        ? p.imageUrl
-        : `${base}${p.imageUrl}`,
-    }));
-
-    return res.json(prendasConUrl);
+    return res.json(prendas);
   } catch (err) {
     console.error("list error:", err);
-    return res.status(500).json({ error: "No se pudieron obtener las prendas" });
+
+    return res.status(500).json({
+      error: "No se pudieron obtener las prendas",
+      detail: err.message,
+    });
   }
 });
 
@@ -262,25 +415,21 @@ router.delete("/:id", async (req, res) => {
       return res.status(404).json({ error: "Prenda no encontrada" });
     }
 
-    if (prenda.imageUrl && !prenda.imageUrl.startsWith("http")) {
-      const cleanRelativePath = prenda.imageUrl.replace(/^\/+/, "");
-      const imagePath = path.join(__dirname, "..", cleanRelativePath);
-
-      try {
-        await fs.unlink(imagePath);
-      } catch (e) {
-        console.warn("No se pudo eliminar el archivo:", e.message);
-      }
-    }
-
     await prisma.prenda.delete({
       where: { id: numericId },
     });
 
-    return res.json({ success: true, message: "Prenda eliminada" });
+    return res.json({
+      success: true,
+      message: "Prenda eliminada",
+    });
   } catch (err) {
     console.error("delete error:", err);
-    return res.status(500).json({ error: "No se pudo eliminar la prenda" });
+
+    return res.status(500).json({
+      error: "No se pudo eliminar la prenda",
+      detail: err.message,
+    });
   }
 });
 
