@@ -866,6 +866,7 @@
 // });
 
 // frontend/app/(tabs)/explorar.tsx
+// frontend/app/(tabs)/explorar.tsx
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   View,
@@ -885,8 +886,9 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect } from "expo-router";
 
-import { get, post, put, del, API_URL } from "../../src/api";
+import { get, post, put, del } from "../../src/api";
 import { useAuth } from "../../src/contexts/auth";
+import { normalizeImageUrl } from "../../src/utils/imageUrl";
 
 type ExploreLike = {
   userId: string;
@@ -906,23 +908,29 @@ type ExploreComment = {
 type ExplorePost = {
   id: string;
   title: string;
-  imageUrl: string;
+  imageUrl?: string | null;
+  image_url?: string | null;
   style: string | null;
   likes: number;
   saves: number;
   createdAt: string;
   userId: string;
+  user_id?: string;
   user: {
     id: string;
     name: string | null;
   };
   outfit?: {
     id: string;
+    imageUrl?: string | null;
+    image_url?: string | null;
     items?: {
       prenda: {
         id: number;
         type: string | null;
         color: string | null;
+        imageUrl?: string | null;
+        image_url?: string | null;
       };
     }[];
     photos?: {
@@ -940,6 +948,9 @@ const FILTERS = [
   { id: "Formal", label: "Formal", icon: "diamond-outline" as const },
   { id: "Deportivo", label: "Deportivo", icon: "barbell-outline" as const },
 ];
+
+const PLACEHOLDER_IMAGE =
+  "https://via.placeholder.com/400x500?text=Sin+imagen";
 
 export default function ExplorarScreen() {
   const { user } = useAuth();
@@ -969,23 +980,66 @@ export default function ExplorarScreen() {
   ];
 
   const normalizePost = (postItem: any): ExplorePost => {
+    const normalizedImage =
+      normalizeImageUrl(postItem.imageUrl || postItem.image_url) || "";
+
+    const outfitPhotos = Array.isArray(postItem.outfit?.photos)
+      ? postItem.outfit.photos.map((photo: any) => ({
+          ...photo,
+          url: normalizeImageUrl(photo.url) || photo.url,
+        }))
+      : [];
+
+    const outfitItems = Array.isArray(postItem.outfit?.items)
+      ? postItem.outfit.items.map((item: any) => ({
+          ...item,
+          prenda: {
+            ...item.prenda,
+            imageUrl:
+              normalizeImageUrl(
+                item.prenda?.imageUrl || item.prenda?.image_url
+              ) || item.prenda?.imageUrl,
+            image_url:
+              normalizeImageUrl(
+                item.prenda?.imageUrl || item.prenda?.image_url
+              ) || item.prenda?.image_url,
+          },
+        }))
+      : [];
+
     return {
       ...postItem,
-      imageUrl: postItem.imageUrl || postItem.image_url || "",
+      imageUrl: normalizedImage,
+      image_url: normalizedImage,
       likes: postItem.likes ?? 0,
       saves: postItem.saves ?? 0,
       likesList: postItem.likesList || [],
       comments: postItem.comments || [],
       userId: postItem.userId || postItem.user_id || "",
+      user_id: postItem.user_id || postItem.userId || "",
       user: postItem.user || {
         id: postItem.userId || postItem.user_id || "",
         name: "Usuario",
       },
-      outfit: postItem.outfit || {
-        id: "",
-        items: [],
-        photos: [],
-      },
+      outfit: postItem.outfit
+        ? {
+            ...postItem.outfit,
+            imageUrl:
+              normalizeImageUrl(
+                postItem.outfit.imageUrl || postItem.outfit.image_url
+              ) || "",
+            image_url:
+              normalizeImageUrl(
+                postItem.outfit.imageUrl || postItem.outfit.image_url
+              ) || "",
+            items: outfitItems,
+            photos: outfitPhotos,
+          }
+        : {
+            id: "",
+            items: [],
+            photos: [],
+          },
     };
   };
 
@@ -1049,24 +1103,37 @@ export default function ExplorarScreen() {
       const author = p.user?.name?.toLowerCase() || "";
       const style = p.style?.toLowerCase() || "";
 
-      return title.includes(term) || author.includes(term) || style.includes(term);
+      return (
+        title.includes(term) || author.includes(term) || style.includes(term)
+      );
     });
   }, [posts, search]);
 
   const getMainImage = (postItem: ExplorePost) => {
-    if (postItem.imageUrl) {
-      if (postItem.imageUrl.startsWith("http")) return postItem.imageUrl;
-      return `${API_URL}${postItem.imageUrl}`;
-    }
+    const directImage = normalizeImageUrl(
+      postItem.imageUrl || postItem.image_url
+    );
 
-    if (postItem.outfit?.photos?.[0]?.url) {
-      const url = postItem.outfit.photos[0].url;
+    if (directImage) return directImage;
 
-      if (url.startsWith("http")) return url;
-      return `${API_URL}${url}`;
-    }
+    const outfitImage = normalizeImageUrl(
+      postItem.outfit?.imageUrl || postItem.outfit?.image_url
+    );
 
-    return "https://via.placeholder.com/400x500?text=Sin+imagen";
+    if (outfitImage) return outfitImage;
+
+    const photoImage = normalizeImageUrl(postItem.outfit?.photos?.[0]?.url);
+
+    if (photoImage) return photoImage;
+
+    const firstPrendaImage = normalizeImageUrl(
+      postItem.outfit?.items?.[0]?.prenda?.imageUrl ||
+        postItem.outfit?.items?.[0]?.prenda?.image_url
+    );
+
+    if (firstPrendaImage) return firstPrendaImage;
+
+    return PLACEHOLDER_IMAGE;
   };
 
   const hasLiked = (postItem: ExplorePost): boolean => {
@@ -1288,7 +1355,10 @@ export default function ExplorarScreen() {
 
               setPosts((prev) => prev.filter((p) => p.id !== postItem.id));
 
-              Alert.alert("Eliminada", "La publicación se eliminó correctamente.");
+              Alert.alert(
+                "Eliminada",
+                "La publicación se eliminó correctamente."
+              );
             } catch (err) {
               console.error("Error eliminando post:", err);
               Alert.alert("Error", getErrorMessage(err));
@@ -1326,7 +1396,18 @@ export default function ExplorarScreen() {
 
     return (
       <View key={postItem.id} style={styles.postCard}>
-        <Image source={{ uri: imageUrl }} style={styles.postImage} />
+        <Image
+          source={{ uri: imageUrl }}
+          style={styles.postImage}
+          resizeMode="cover"
+          onError={(error) => {
+            console.log("❌ Error cargando imagen en Explorar:", {
+              postId: postItem.id,
+              imageUrl,
+              nativeEvent: error.nativeEvent,
+            });
+          }}
+        />
 
         <LinearGradient
           colors={["transparent", "rgba(0,0,0,0.82)"]}
@@ -1377,10 +1458,15 @@ export default function ExplorarScreen() {
         </View>
 
         <View style={styles.postBottom}>
-          <Text style={styles.postTitle}>{postItem.title || "Outfit sugerido"}</Text>
+          <Text style={styles.postTitle}>
+            {postItem.title || "Outfit sugerido"}
+          </Text>
 
           <View style={styles.actionsRow}>
-            <Pressable style={styles.actionButton} onPress={() => handleLike(postItem)}>
+            <Pressable
+              style={styles.actionButton}
+              onPress={() => handleLike(postItem)}
+            >
               <Ionicons
                 name={liked ? "heart" : "heart-outline"}
                 size={29}
@@ -1497,7 +1583,9 @@ export default function ExplorarScreen() {
                       style={styles.filterActive}
                     >
                       <Ionicons name={filter.icon} size={17} color="#FFFFFF" />
-                      <Text style={styles.filterActiveText}>{filter.label}</Text>
+                      <Text style={styles.filterActiveText}>
+                        {filter.label}
+                      </Text>
                     </LinearGradient>
                   ) : (
                     <View style={styles.filterInactive}>
@@ -1592,7 +1680,9 @@ export default function ExplorarScreen() {
                       <Text style={styles.commentUser}>
                         {comment.user?.name || "Usuario"}
                       </Text>
-                      <Text style={styles.commentContent}>{comment.content}</Text>
+                      <Text style={styles.commentContent}>
+                        {comment.content}
+                      </Text>
                     </View>
                   </View>
                 ))
@@ -1671,39 +1761,20 @@ export default function ExplorarScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#F3F0FA",
-  },
-
-  scrollContent: {
-    paddingBottom: 120,
-  },
-
-  header: {
-    paddingTop: 64,
-    paddingHorizontal: 24,
-    paddingBottom: 34,
-  },
-
+  container: { flex: 1, backgroundColor: "#F3F0FA" },
+  scrollContent: { paddingBottom: 120 },
+  header: { paddingTop: 64, paddingHorizontal: 24, paddingBottom: 34 },
   headerTop: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
   },
-
-  headerTitle: {
-    color: "#FFFFFF",
-    fontSize: 34,
-    fontWeight: "800",
-  },
-
+  headerTitle: { color: "#FFFFFF", fontSize: 34, fontWeight: "800" },
   headerSubtitle: {
     color: "rgba(255,255,255,0.9)",
     fontSize: 14,
     marginTop: 5,
   },
-
   headerIcon: {
     width: 50,
     height: 50,
@@ -1712,7 +1783,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   searchCard: {
     marginTop: 22,
     backgroundColor: "#FFFFFF",
@@ -1722,27 +1792,15 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
   },
-
   searchInput: {
     flex: 1,
     marginLeft: 10,
     fontSize: 14,
     color: "#1F2A44",
   },
-
-  content: {
-    paddingHorizontal: 20,
-    marginTop: 22,
-  },
-
-  filtersRow: {
-    paddingBottom: 12,
-  },
-
-  filterPressable: {
-    marginRight: 10,
-  },
-
+  content: { paddingHorizontal: 20, marginTop: 22 },
+  filtersRow: { paddingBottom: 12 },
+  filterPressable: { marginRight: 10 },
   filterActive: {
     flexDirection: "row",
     alignItems: "center",
@@ -1750,14 +1808,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 11,
   },
-
   filterActiveText: {
     color: "#FFFFFF",
     fontWeight: "800",
     fontSize: 13,
     marginLeft: 6,
   },
-
   filterInactive: {
     flexDirection: "row",
     alignItems: "center",
@@ -1766,14 +1822,12 @@ const styles = StyleSheet.create({
     paddingVertical: 11,
     backgroundColor: "#FFFFFF",
   },
-
   filterInactiveText: {
     color: "#4A6FA5",
     fontWeight: "800",
     fontSize: 13,
     marginLeft: 6,
   },
-
   sectionTitle: {
     fontSize: 24,
     fontWeight: "800",
@@ -1781,14 +1835,12 @@ const styles = StyleSheet.create({
     marginTop: 6,
     marginBottom: 14,
   },
-
   hashtagsGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "space-between",
     marginBottom: 24,
   },
-
   hashtagCard: {
     width: "48%",
     backgroundColor: "#FFFFFF",
@@ -1796,29 +1848,15 @@ const styles = StyleSheet.create({
     padding: 15,
     marginBottom: 12,
   },
-
-  hashtagRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 10,
-  },
-
+  hashtagRow: { flexDirection: "row", alignItems: "center", marginBottom: 10 },
   hashtagText: {
     color: "#5B21B6",
     fontWeight: "800",
     fontSize: 15,
     marginLeft: 7,
   },
-
-  hashtagCount: {
-    color: "#6B7280",
-    fontSize: 13,
-  },
-
-  feed: {
-    marginTop: 4,
-  },
-
+  hashtagCount: { color: "#6B7280", fontSize: 13 },
+  feed: { marginTop: 4 },
   postCard: {
     height: 430,
     borderRadius: 28,
@@ -1831,24 +1869,14 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 6,
   },
-
-  postImage: {
-    width: "100%",
-    height: "100%",
-    backgroundColor: "#E5E7EB",
-  },
-
-  postOverlay: {
-    ...StyleSheet.absoluteFillObject,
-  },
-
+  postImage: { width: "100%", height: "100%", backgroundColor: "#E5E7EB" },
+  postOverlay: { ...StyleSheet.absoluteFillObject },
   postTopActions: {
     position: "absolute",
     top: 18,
     right: 18,
     flexDirection: "row",
   },
-
   floatingButton: {
     width: 48,
     height: 48,
@@ -1858,7 +1886,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginLeft: 10,
   },
-
   floatingButtonDanger: {
     width: 48,
     height: 48,
@@ -1868,7 +1895,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginLeft: 10,
   },
-
   postAuthorRow: {
     position: "absolute",
     left: 18,
@@ -1877,7 +1903,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
   },
-
   avatarSmall: {
     width: 54,
     height: 54,
@@ -1887,57 +1912,24 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginRight: 12,
   },
-
-  avatarLetter: {
-    color: "#FFFFFF",
-    fontWeight: "900",
-    fontSize: 22,
-  },
-
-  authorName: {
-    color: "#FFFFFF",
-    fontSize: 17,
-    fontWeight: "800",
-  },
-
-  postStyle: {
-    color: "rgba(255,255,255,0.86)",
-    fontSize: 14,
-    marginTop: 2,
-  },
-
-  postBottom: {
-    position: "absolute",
-    left: 18,
-    right: 18,
-    bottom: 20,
-  },
-
+  avatarLetter: { color: "#FFFFFF", fontWeight: "900", fontSize: 22 },
+  authorName: { color: "#FFFFFF", fontSize: 17, fontWeight: "800" },
+  postStyle: { color: "rgba(255,255,255,0.86)", fontSize: 14, marginTop: 2 },
+  postBottom: { position: "absolute", left: 18, right: 18, bottom: 20 },
   postTitle: {
     color: "#FFFFFF",
     fontSize: 26,
     fontWeight: "900",
     marginBottom: 16,
   },
-
-  actionsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-
-  actionButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginRight: 20,
-  },
-
+  actionsRow: { flexDirection: "row", alignItems: "center" },
+  actionButton: { flexDirection: "row", alignItems: "center", marginRight: 20 },
   actionText: {
     color: "#FFFFFF",
     fontSize: 16,
     fontWeight: "700",
     marginLeft: 7,
   },
-
   shareButton: {
     width: 44,
     height: 44,
@@ -1945,7 +1937,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   moreButton: {
     width: 44,
     height: 44,
@@ -1954,26 +1945,19 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginLeft: 4,
   },
-
   loadingBox: {
     backgroundColor: "#FFFFFF",
     borderRadius: 26,
     padding: 30,
     alignItems: "center",
   },
-
-  loadingText: {
-    color: "#6B7280",
-    marginTop: 10,
-  },
-
+  loadingText: { color: "#6B7280", marginTop: 10 },
   emptyBox: {
     backgroundColor: "#FFFFFF",
     borderRadius: 26,
     padding: 30,
     alignItems: "center",
   },
-
   emptyTitle: {
     color: "#1F2A44",
     fontSize: 18,
@@ -1981,7 +1965,6 @@ const styles = StyleSheet.create({
     marginTop: 12,
     textAlign: "center",
   },
-
   emptyText: {
     color: "#6B7280",
     fontSize: 13,
@@ -1989,13 +1972,11 @@ const styles = StyleSheet.create({
     marginTop: 6,
     textAlign: "center",
   },
-
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(15,23,42,0.50)",
     justifyContent: "flex-end",
   },
-
   commentSheet: {
     backgroundColor: "#FFFFFF",
     borderTopLeftRadius: 30,
@@ -2005,7 +1986,6 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 18,
   },
-
   modalHandle: {
     width: 46,
     height: 5,
@@ -2014,39 +1994,17 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     marginBottom: 16,
   },
-
   modalHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 14,
   },
-
-  modalTitle: {
-    fontSize: 22,
-    fontWeight: "800",
-    color: "#1F2A44",
-  },
-
-  commentsList: {
-    maxHeight: 320,
-  },
-
-  noCommentsBox: {
-    paddingVertical: 32,
-    alignItems: "center",
-  },
-
-  noCommentsText: {
-    color: "#6B7280",
-    marginTop: 8,
-  },
-
-  commentItem: {
-    flexDirection: "row",
-    marginBottom: 14,
-  },
-
+  modalTitle: { fontSize: 22, fontWeight: "800", color: "#1F2A44" },
+  commentsList: { maxHeight: 320 },
+  noCommentsBox: { paddingVertical: 32, alignItems: "center" },
+  noCommentsText: { color: "#6B7280", marginTop: 8 },
+  commentItem: { flexDirection: "row", marginBottom: 14 },
   commentAvatar: {
     width: 38,
     height: 38,
@@ -2056,38 +2014,21 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginRight: 10,
   },
-
-  commentAvatarText: {
-    color: "#FFFFFF",
-    fontWeight: "900",
-  },
-
+  commentAvatarText: { color: "#FFFFFF", fontWeight: "900" },
   commentBubble: {
     flex: 1,
     backgroundColor: "#EEF3F7",
     borderRadius: 18,
     padding: 12,
   },
-
   commentUser: {
     color: "#1F2A44",
     fontWeight: "800",
     fontSize: 13,
     marginBottom: 3,
   },
-
-  commentContent: {
-    color: "#4B5563",
-    fontSize: 13,
-    lineHeight: 18,
-  },
-
-  commentInputRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 12,
-  },
-
+  commentContent: { color: "#4B5563", fontSize: 13, lineHeight: 18 },
+  commentInputRow: { flexDirection: "row", alignItems: "center", marginTop: 12 },
   commentInput: {
     flex: 1,
     backgroundColor: "#EEF3F7",
@@ -2097,7 +2038,6 @@ const styles = StyleSheet.create({
     color: "#1F2A44",
     marginRight: 10,
   },
-
   sendCommentButton: {
     width: 46,
     height: 46,
@@ -2106,26 +2046,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   editOverlay: {
     flex: 1,
     backgroundColor: "rgba(15,23,42,0.50)",
     justifyContent: "center",
     paddingHorizontal: 22,
   },
-
-  editCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 28,
-    padding: 22,
-  },
-
-  editLabel: {
-    color: "#4B5563",
-    fontWeight: "800",
-    marginBottom: 8,
-  },
-
+  editCard: { backgroundColor: "#FFFFFF", borderRadius: 28, padding: 22 },
+  editLabel: { color: "#4B5563", fontWeight: "800", marginBottom: 8 },
   editInput: {
     backgroundColor: "#EEF3F7",
     borderRadius: 18,
@@ -2135,21 +2063,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     marginBottom: 16,
   },
-
-  saveEditButtonWrapper: {
-    borderRadius: 999,
-    overflow: "hidden",
-  },
-
-  saveEditButton: {
-    borderRadius: 999,
-    paddingVertical: 15,
-    alignItems: "center",
-  },
-
-  saveEditButtonText: {
-    color: "#FFFFFF",
-    fontSize: 15,
-    fontWeight: "800",
-  },
+  saveEditButtonWrapper: { borderRadius: 999, overflow: "hidden" },
+  saveEditButton: { borderRadius: 999, paddingVertical: 15, alignItems: "center" },
+  saveEditButtonText: { color: "#FFFFFF", fontSize: 15, fontWeight: "800" },
 });

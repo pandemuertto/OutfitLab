@@ -138,12 +138,14 @@ import { LinearGradient } from "expo-linear-gradient";
 import { router, useFocusEffect } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-import { API_URL, get } from "../../src/api";
+import { get } from "../../src/api";
 import { useAuth } from "../../src/contexts/auth";
+import { normalizeImageUrl } from "../../src/utils/imageUrl";
 
 type ClothingItem = {
   id: number;
-  imageUrl: string;
+  imageUrl?: string | null;
+  image_url?: string | null;
   type?: string | null;
   color?: string | null;
   category?: string | null;
@@ -160,6 +162,9 @@ type OutfitDB = {
   dressCode?: string | null;
   weather?: string | null;
   photoUrl?: string | null;
+  photo_url?: string | null;
+  imageUrl?: string | null;
+  image_url?: string | null;
   createdAt?: string;
   items: OutfitItemDB[];
 };
@@ -175,12 +180,6 @@ type LocalSettings = {
   favoriteStyles?: string[];
 };
 
-function buildImageUrl(url?: string | null) {
-  if (!url) return null;
-  if (url.startsWith("http")) return url;
-  return `${API_URL}${url}`;
-}
-
 function normalizeUsername(value?: string | null) {
   if (!value) return "usuario";
 
@@ -191,6 +190,32 @@ function normalizeUsername(value?: string | null) {
     .replace("@", "")
     .replace(/\s+/g, "_")
     .replace(/[^a-z0-9_]/g, "");
+}
+
+function normalizeOutfit(outfit: any): OutfitDB {
+  const items = Array.isArray(outfit?.items)
+    ? outfit.items.map((item: any) => ({
+        ...item,
+        prenda: {
+          ...item.prenda,
+          imageUrl: normalizeImageUrl(
+            item?.prenda?.imageUrl || item?.prenda?.image_url
+          ),
+          image_url: normalizeImageUrl(
+            item?.prenda?.imageUrl || item?.prenda?.image_url
+          ),
+        },
+      }))
+    : [];
+
+  return {
+    ...outfit,
+    photoUrl: normalizeImageUrl(outfit?.photoUrl || outfit?.photo_url),
+    photo_url: normalizeImageUrl(outfit?.photoUrl || outfit?.photo_url),
+    imageUrl: normalizeImageUrl(outfit?.imageUrl || outfit?.image_url),
+    image_url: normalizeImageUrl(outfit?.imageUrl || outfit?.image_url),
+    items,
+  };
 }
 
 export default function ProfileScreen() {
@@ -230,7 +255,7 @@ export default function ProfileScreen() {
       if (!saved) {
         setProfileName(user?.name || "Usuario");
         setProfileUsername(normalizeUsername(user?.name || user?.email));
-        setProfilePhotoUrl(buildImageUrl((user as any)?.avatarUrl));
+        setProfilePhotoUrl(normalizeImageUrl((user as any)?.avatarUrl));
 
         setFavoriteStyles([
           "Minimalista",
@@ -253,7 +278,8 @@ export default function ProfileScreen() {
       );
 
       setProfilePhotoUrl(
-        parsed.profilePhotoUrl || buildImageUrl((user as any)?.avatarUrl)
+        normalizeImageUrl(parsed.profilePhotoUrl) ||
+          normalizeImageUrl((user as any)?.avatarUrl)
       );
 
       setFavoriteStyles(
@@ -288,7 +314,7 @@ export default function ProfileScreen() {
         : outfitsResponse?.outfits || outfitsResponse?.items || [];
 
       setClothesCount(clothes.length);
-      setSavedOutfits(outfits);
+      setSavedOutfits(outfits.map(normalizeOutfit));
     } catch (err) {
       console.error("Error cargando perfil:", err);
 
@@ -308,13 +334,15 @@ export default function ProfileScreen() {
   );
 
   const getOutfitThumbnail = (outfit: OutfitDB): string | null => {
-    if (outfit.photoUrl) return buildImageUrl(outfit.photoUrl);
+    const direct =
+      normalizeImageUrl(outfit.imageUrl || outfit.image_url) ||
+      normalizeImageUrl(outfit.photoUrl || outfit.photo_url);
+
+    if (direct) return direct;
 
     const first = outfit.items?.[0]?.prenda;
 
-    if (!first?.imageUrl) return null;
-
-    return buildImageUrl(first.imageUrl);
+    return normalizeImageUrl(first?.imageUrl || first?.image_url);
   };
 
   const handleLogout = async () => {
@@ -452,6 +480,13 @@ export default function ProfileScreen() {
                     source={{ uri: thumbnail }}
                     style={styles.outfitImage}
                     resizeMode="cover"
+                    onError={(error) => {
+                      console.log("❌ Error cargando thumbnail perfil:", {
+                        outfitId: outfit.id,
+                        thumbnail,
+                        nativeEvent: error.nativeEvent,
+                      });
+                    }}
                   />
                 ) : (
                   <View style={[styles.outfitImage, styles.outfitPlaceholder]}>
@@ -502,6 +537,12 @@ export default function ProfileScreen() {
                 source={{ uri: profilePhotoUrl }}
                 style={styles.avatarImage}
                 resizeMode="cover"
+                onError={(error) => {
+                  console.log("❌ Error cargando foto perfil:", {
+                    profilePhotoUrl,
+                    nativeEvent: error.nativeEvent,
+                  });
+                }}
               />
             ) : (
               <Ionicons name="person" size={48} color="#FFFFFF" />
@@ -640,25 +681,14 @@ export default function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#EEF3F7",
-  },
-
-  scrollContent: {
-    paddingBottom: 120,
-  },
-
+  container: { flex: 1, backgroundColor: "#EEF3F7" },
+  scrollContent: { paddingBottom: 120 },
   header: {
     paddingTop: 70,
     paddingHorizontal: 24,
     paddingBottom: 70,
   },
-
-  headerContent: {
-    alignItems: "center",
-  },
-
+  headerContent: { alignItems: "center" },
   avatar: {
     width: 112,
     height: 112,
@@ -671,66 +701,34 @@ const styles = StyleSheet.create({
     marginBottom: 18,
     overflow: "hidden",
   },
-
-  avatarImage: {
-    width: "100%",
-    height: "100%",
-    borderRadius: 56,
-  },
-
-  name: {
-    fontSize: 32,
-    fontWeight: "800",
-    color: "#FFFFFF",
-  },
-
+  avatarImage: { width: "100%", height: "100%", borderRadius: 56 },
+  name: { fontSize: 32, fontWeight: "800", color: "#FFFFFF" },
   username: {
     fontSize: 16,
     color: "rgba(255,255,255,0.85)",
     marginTop: 4,
   },
-
   email: {
     fontSize: 14,
     color: "rgba(255,255,255,0.82)",
     marginTop: 3,
   },
-
   statsRow: {
     flexDirection: "row",
     marginTop: 30,
     width: "100%",
     justifyContent: "space-around",
   },
-
-  statItem: {
-    alignItems: "center",
-    flex: 1,
-  },
-
-  statTopRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 4,
-  },
-
+  statItem: { alignItems: "center", flex: 1 },
+  statTopRow: { flexDirection: "row", alignItems: "center", marginBottom: 4 },
   statValue: {
     color: "#FFFFFF",
     fontSize: 22,
     fontWeight: "800",
     marginLeft: 6,
   },
-
-  statLabel: {
-    color: "rgba(255,255,255,0.82)",
-    fontSize: 13,
-  },
-
-  content: {
-    paddingHorizontal: 24,
-    marginTop: -38,
-  },
-
+  statLabel: { color: "rgba(255,255,255,0.82)", fontSize: 13 },
+  content: { paddingHorizontal: 24, marginTop: -38 },
   stylesCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 28,
@@ -742,20 +740,13 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 5,
   },
-
   stylesTitleRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 16,
   },
-
-  stylesCardTitle: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: "#4B5563",
-  },
-
+  stylesCardTitle: { fontSize: 18, fontWeight: "800", color: "#4B5563" },
   editStylesButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -764,19 +755,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 7,
   },
-
   editStylesText: {
     color: "#4A6FA5",
     fontSize: 12,
     fontWeight: "800",
     marginLeft: 4,
   },
-
-  stylesTags: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-  },
-
+  stylesTags: { flexDirection: "row", flexWrap: "wrap" },
   styleTag: {
     borderWidth: 1,
     borderColor: "#CBD5E1",
@@ -787,35 +772,16 @@ const styles = StyleSheet.create({
     marginRight: 10,
     marginBottom: 10,
   },
-
-  styleTagText: {
-    color: "#4A6FA5",
-    fontSize: 13,
-    fontWeight: "700",
-  },
-
-  tabsRow: {
-    flexDirection: "row",
-    marginBottom: 20,
-  },
-
-  tabButton: {
-    flex: 1,
-  },
-
+  styleTagText: { color: "#4A6FA5", fontSize: 13, fontWeight: "700" },
+  tabsRow: { flexDirection: "row", marginBottom: 20 },
+  tabButton: { flex: 1 },
   activeTab: {
     borderRadius: 999,
     paddingVertical: 15,
     alignItems: "center",
     marginRight: 8,
   },
-
-  activeTabText: {
-    color: "#FFFFFF",
-    fontSize: 15,
-    fontWeight: "800",
-  },
-
+  activeTabText: { color: "#FFFFFF", fontSize: 15, fontWeight: "800" },
   inactiveTab: {
     backgroundColor: "#FFFFFF",
     borderRadius: 999,
@@ -825,13 +791,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#E5E7EB",
   },
-
-  inactiveTabText: {
-    color: "#4B5563",
-    fontSize: 15,
-    fontWeight: "800",
-  },
-
+  inactiveTabText: { color: "#4B5563", fontSize: 15, fontWeight: "800" },
   emptyGridCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 28,
@@ -840,7 +800,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 24,
   },
-
   emptyGridTitle: {
     fontSize: 19,
     fontWeight: "800",
@@ -848,7 +807,6 @@ const styles = StyleSheet.create({
     marginTop: 14,
     textAlign: "center",
   },
-
   emptyGridText: {
     fontSize: 14,
     color: "#6B7280",
@@ -856,7 +814,6 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginTop: 8,
   },
-
   emptyActionButton: {
     marginTop: 18,
     borderRadius: 999,
@@ -864,70 +821,35 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 11,
   },
-
-  emptyActionText: {
-    color: "#4A6FA5",
-    fontSize: 13,
-    fontWeight: "800",
-  },
-
+  emptyActionText: { color: "#4A6FA5", fontSize: 13, fontWeight: "800" },
   grid: {
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "space-between",
     marginBottom: 24,
   },
-
-  outfitCard: {
-    width: "48%",
-    marginBottom: 14,
-  },
-
-  outfitCardTall: {
-    width: "100%",
-  },
-
+  outfitCard: { width: "48%", marginBottom: 14 },
+  outfitCardTall: { width: "100%" },
   outfitImageWrapper: {
     height: 210,
     borderRadius: 26,
     overflow: "hidden",
     backgroundColor: "#FFFFFF",
   },
-
-  outfitImage: {
-    width: "100%",
-    height: "100%",
-  },
-
+  outfitImage: { width: "100%", height: "100%" },
   outfitPlaceholder: {
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#E5E7EB",
   },
-
-  outfitOverlay: {
-    ...StyleSheet.absoluteFillObject,
-  },
-
-  outfitInfoOverlay: {
-    position: "absolute",
-    left: 14,
-    right: 14,
-    bottom: 14,
-  },
-
-  outfitTitle: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "800",
-  },
-
+  outfitOverlay: { ...StyleSheet.absoluteFillObject },
+  outfitInfoOverlay: { position: "absolute", left: 14, right: 14, bottom: 14 },
+  outfitTitle: { color: "#FFFFFF", fontSize: 16, fontWeight: "800" },
   outfitMeta: {
     color: "rgba(255,255,255,0.88)",
     fontSize: 12,
     marginTop: 2,
   },
-
   menuCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 28,
@@ -938,19 +860,13 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 5,
   },
-
   menuItem: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 18,
     paddingVertical: 18,
   },
-
-  menuDivider: {
-    borderBottomWidth: 1,
-    borderBottomColor: "#EEF2F7",
-  },
-
+  menuDivider: { borderBottomWidth: 1, borderBottomColor: "#EEF2F7" },
   menuIconContainer: {
     width: 50,
     height: 50,
@@ -959,24 +875,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginRight: 14,
   },
-
-  menuTextContainer: {
-    flex: 1,
-  },
-
-  menuLabel: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: "#1F2A44",
-  },
-
-  menuLabelDanger: {
-    color: "#EF4444",
-  },
-
-  menuDescription: {
-    fontSize: 13,
-    color: "#6B7280",
-    marginTop: 3,
-  },
+  menuTextContainer: { flex: 1 },
+  menuLabel: { fontSize: 16, fontWeight: "800", color: "#1F2A44" },
+  menuLabelDanger: { color: "#EF4444" },
+  menuDescription: { fontSize: 13, color: "#6B7280", marginTop: 3 },
 });

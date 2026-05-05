@@ -1,60 +1,97 @@
 //frontend/src/services/outfit.service.ts
-import { API_URL } from "../api";
+// frontend/src/services/outfits.service.ts
 
-export async function getUserOutfits(userId: string) {
-  const resp = await fetch(`${API_URL}/api/outfits/user/${userId}`);
-  const data = await resp.json();
+import { api } from "../api";
+import { normalizeImageUrl } from "../utils/imageUrl";
+import { normalizePrenda, Prenda } from "./clothingServie";
 
-  if (!resp.ok) {
-    throw new Error(data?.error || "No se pudieron cargar los outfits");
-  }
-
-  return Array.isArray(data) ? data : [];
+export interface OutfitItem {
+  id?: number | string;
+  prendaId?: number | string;
+  prenda?: Prenda;
 }
 
-export interface OutfitPiece {
-  id: number;
-  imageUrl: string;
-  type?: string | null;
-  category?: string | null;
-  color?: string | null;
-  brand?: string | null;
-  confidence?: number | null;
+export interface Outfit {
+  id: string;
+  userId?: string;
+  user_id?: string;
+  name?: string | null;
+  title?: string | null;
+  occasion?: string | null;
+  dressCode?: string | null;
+  weather?: string | null;
+  imageUrl?: string | null;
+  image_url?: string | null;
+  items?: OutfitItem[];
+  prendas?: Prenda[];
+  createdAt?: string;
+  updatedAt?: string;
 }
 
-export interface GeneratedOutfitApi {
-  type: "dress" | "separates";
-  score: number;
-  reason: string;
-  pieces: OutfitPiece[];
+export function normalizeOutfit(outfit: any): Outfit {
+  const rawImageUrl = outfit?.imageUrl || outfit?.image_url || null;
+
+  const items = Array.isArray(outfit?.items)
+    ? outfit.items.map((item: any) => ({
+        ...item,
+        prenda: item?.prenda ? normalizePrenda(item.prenda) : undefined,
+      }))
+    : Array.isArray(outfit?.outfitPrendas)
+      ? outfit.outfitPrendas.map((item: any) => ({
+          ...item,
+          prenda: item?.prenda ? normalizePrenda(item.prenda) : undefined,
+        }))
+      : [];
+
+  const prendas = Array.isArray(outfit?.prendas)
+    ? outfit.prendas.map(normalizePrenda)
+    : [];
+
+  return {
+    ...outfit,
+    userId: outfit?.userId || outfit?.user_id,
+    user_id: outfit?.user_id || outfit?.userId,
+    imageUrl: normalizeImageUrl(rawImageUrl),
+    image_url: normalizeImageUrl(rawImageUrl),
+    items,
+    prendas,
+  };
 }
 
-export interface GenerateOutfitsResponse {
-  success: boolean;
-  count: number;
-  outfits: GeneratedOutfitApi[];
+export async function getUserOutfits(userId: string): Promise<Outfit[]> {
+  const { data } = await api.get(`/api/outfits/user/${userId}`);
+
+  const list = Array.isArray(data)
+    ? data
+    : data?.outfits || data?.items || data?.data || [];
+
+  return Array.isArray(list) ? list.map(normalizeOutfit) : [];
 }
 
-export async function generateOutfits(params: {
-  userId: string;
-  occasion: string;
-  weather: string;
-  favoriteColors?: string[];
-  dislikedColors?: string[];
-}): Promise<GenerateOutfitsResponse> {
-  const resp = await fetch(`${API_URL}/api/outfits/generate`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(params),
-  });
+export async function saveOutfit(payload: any): Promise<Outfit> {
+  const { data } = await api.post("/api/outfits", payload);
 
-  const data = await resp.json();
+  return normalizeOutfit(data?.outfit || data?.item || data);
+}
 
-  if (!resp.ok) {
-    throw new Error(data?.error || "No se pudieron generar outfits");
-  }
+export async function updateOutfit(id: string, payload: any): Promise<Outfit> {
+  const { data } = await api.patch(`/api/outfits/${id}`, payload);
 
-  return data as GenerateOutfitsResponse;
+  return normalizeOutfit(data?.outfit || data?.item || data);
+}
+
+export async function deleteOutfit(id: string): Promise<any> {
+  const { data } = await api.delete(`/api/outfits/${id}`);
+
+  return data;
+}
+
+export async function generateOutfits(payload: any): Promise<Outfit[]> {
+  const { data } = await api.post("/api/outfits/generate", payload);
+
+  const list = Array.isArray(data)
+    ? data
+    : data?.outfits || data?.suggestions || data?.items || [];
+
+  return Array.isArray(list) ? list.map(normalizeOutfit) : [];
 }

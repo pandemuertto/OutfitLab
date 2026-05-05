@@ -106,7 +106,10 @@
 
 // frontend/src/services/clothingServie.ts
 
+// frontend/src/services/clothingServie.ts
+
 import { api, API_URL } from "../api";
+import { normalizeImageUrl } from "../utils/imageUrl";
 
 export interface Prenda {
   id: number | string;
@@ -151,23 +154,7 @@ export interface UpdatePrendaPayload {
   brand?: string;
 }
 
-function normalizeImageUrl(rawUrl?: string | null): string | null {
-  if (!rawUrl) return null;
-
-  const clean = String(rawUrl).trim();
-
-  if (!clean) return null;
-
-  if (clean.startsWith("http://") || clean.startsWith("https://")) {
-    return clean;
-  }
-
-  const cleanPath = clean.startsWith("/") ? clean : `/${clean}`;
-
-  return `${API_URL}${cleanPath}`;
-}
-
-function normalizePrenda(item: any): Prenda {
+export function normalizePrenda(item: any): Prenda {
   const rawImageUrl = item?.imageUrl || item?.image_url || null;
   const normalizedUrl = normalizeImageUrl(rawImageUrl);
 
@@ -219,10 +206,6 @@ export async function uploadClothing(
     type: mime,
   } as any);
 
-  /*
-    Usamos fetch aquí porque React Native maneja mejor multipart/form-data
-    cuando NO forzamos manualmente el boundary.
-  */
   const resp = await fetch(`${API_URL}/api/clothes/upload`, {
     method: "POST",
     body: formData,
