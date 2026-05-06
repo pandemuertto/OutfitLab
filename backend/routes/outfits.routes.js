@@ -1,10 +1,12 @@
 // backend/routes/outfits.routes.js
-// backend/routes/outfits.routes.js
+/// backend/routes/outfits.routes.js
 
 const { Router } = require("express");
+const path = require("path");
+const fs = require("fs").promises;
 const { PrismaClient } = require("@prisma/client");
 const upload = require("../lib/multer");
-const { toPublicUrl, getBackendBaseUrl } = require("../utils/publicUrl");
+const { uploadLocalFileToSupabase } = require("../services/supabaseStorage.service");
 
 const prisma = new PrismaClient();
 const router = Router();
@@ -50,6 +52,34 @@ function normalizeDressCode(value) {
   if (["elegante", "formal", "chic"].includes(style)) return "elegante";
 
   return style;
+}
+
+function isAbsoluteUrl(url) {
+  return typeof url === "string" && /^https?:\/\//i.test(url);
+}
+
+function buildFullUrl(req, url) {
+  if (!url) return null;
+  if (isAbsoluteUrl(url)) return url;
+
+  const base =
+    process.env.PUBLIC_BACKEND_URL ||
+    process.env.BACKEND_PUBLIC_URL ||
+    process.env.RENDER_EXTERNAL_URL ||
+    `${req.protocol}://${req.get("host")}`;
+
+  const cleanBase = String(base).replace(/\/$/, "");
+  const cleanPath = String(url).startsWith("/") ? String(url) : `/${url}`;
+
+  return `${cleanBase}${cleanPath}`;
+}
+
+async function safeDeleteLocalFile(localPath) {
+  try {
+    if (localPath) await fs.unlink(localPath);
+  } catch (e) {
+    console.warn("No se pudo borrar archivo temporal:", e.message);
+  }
 }
 
 function groupClothesByCategory(clothes) {
@@ -107,9 +137,7 @@ function colorCompatibilityScore(a, b) {
       (colorA.includes(y) && colorB.includes(x))
   );
 
-  if (matches) return 4;
-
-  return 1;
+  return matches ? 4 : 1;
 }
 
 function sumPairColorScore(pieces) {
@@ -320,10 +348,11 @@ function explainOutfit(outfit, context) {
 }
 
 function normalizePieceForResponse(piece, req) {
+  const imageUrl = buildFullUrl(req, piece.imageUrl);
+
   return {
     id: piece.id,
-    imageUrl: toPublicUrl(req, piece.imageUrl || piece.image_url),
-    image_url: toPublicUrl(req, piece.imageUrl || piece.image_url),
+    imageUrl,
     type: piece.type,
     category: piece.category,
     color: piece.color,
@@ -337,25 +366,23 @@ function normalizeOutfitForResponse(req, outfit) {
     ? outfit.photos[outfit.photos.length - 1]
     : null;
 
-  const photoUrl = latestPhoto ? toPublicUrl(req, latestPhoto.url) : null;
+  const photoUrl = latestPhoto ? buildFullUrl(req, latestPhoto.url) : null;
 
   return {
     ...outfit,
     photoUrl,
-    photo_url: photoUrl,
     items: (outfit.items || []).map((item) => ({
       ...item,
       prenda: item.prenda
         ? {
             ...item.prenda,
-            imageUrl: toPublicUrl(req, item.prenda.imageUrl || item.prenda.image_url),
-            image_url: toPublicUrl(req, item.prenda.imageUrl || item.prenda.image_url),
+            imageUrl: buildFullUrl(req, item.prenda.imageUrl),
           }
         : item.prenda,
     })),
     photos: (outfit.photos || []).map((photo) => ({
       ...photo,
-      url: toPublicUrl(req, photo.url),
+      url: buildFullUrl(req, photo.url),
     })),
   };
 }
@@ -475,7 +502,6 @@ function buildOutfitOptions(grouped, context, req) {
       .join("-");
 
     if (seen.has(key)) continue;
-
     seen.add(key);
 
     unique.push({
@@ -635,10 +661,15 @@ router.post("/", async (req, res) => {
 });
 
 /**
- * POST /api/outfits/:id/photo
- * Guarda foto del outfit y opcionalmente publica en Explorar.
+ * El front manda el archivo en el campo "image".
+ * Aquí ya NO guardamos /uploads en BD.
+ * Subimos la foto del outfit a Supabase Storage y guardamos la URL pública.
  */
 router.post("/:id/photo", upload.single("image"), async (req, res) => {
+  const tempPhotoPath = req.file
+    ? path.join(__dirname, "..", "uploads", req.file.filename)
+    : null;
+
   try {
     const { id } = req.params;
     const { publishToExplore, postTitle } = req.body;
@@ -655,6 +686,7 @@ router.post("/:id/photo", upload.single("image"), async (req, res) => {
             prenda: true,
           },
         },
+        photos: true,
       },
     });
 
@@ -662,8 +694,16 @@ router.post("/:id/photo", upload.single("image"), async (req, res) => {
       return res.status(404).json({ error: "Outfit no encontrado" });
     }
 
-    const relativeUrl = `/uploads/${req.file.filename}`;
-    const publicUrl = toPublicUrl(req, relativeUrl);
+    const uploaded = await uploadLocalFileToSupabase({
+      localPath: tempPhotoPath,
+      folder: "outfits/photos",
+      userId: outfit.userId,
+      fileName: req.file.originalname || req.file.filename,
+    });
+
+    const publicUrl = uploaded.publicUrl;
+
+    console.log("[OUTFITS] foto subida a Supabase:", publicUrl);
 
     const photo = await prisma.outfitPhoto.create({
       data: {
@@ -684,11 +724,23 @@ router.post("/:id/photo", upload.single("image"), async (req, res) => {
           style: outfit.occasion || null,
         },
         include: {
-          user: true,
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
           likesList: true,
           comments: {
             include: {
-              user: true,
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                  email: true,
+                },
+              },
             },
           },
           outfit: {
@@ -713,13 +765,12 @@ router.post("/:id/photo", upload.single("image"), async (req, res) => {
           : "Foto guardada correctamente",
       photo: {
         ...photo,
-        url: toPublicUrl(req, photo.url),
+        url: publicUrl,
       },
       explorePost: explorePost
         ? {
             ...explorePost,
-            imageUrl: toPublicUrl(req, explorePost.imageUrl),
-            image_url: toPublicUrl(req, explorePost.imageUrl),
+            imageUrl: buildFullUrl(req, explorePost.imageUrl),
           }
         : null,
     });
@@ -730,6 +781,8 @@ router.post("/:id/photo", upload.single("image"), async (req, res) => {
       error: "No se pudo subir la foto del outfit",
       detail: error.message,
     });
+  } finally {
+    await safeDeleteLocalFile(tempPhotoPath);
   }
 });
 
@@ -779,12 +832,12 @@ router.patch("/:id", async (req, res) => {
         collectionId: collectionId ?? undefined,
       },
       include: {
-        collection: true,
         items: {
           include: {
             prenda: true,
           },
         },
+        collection: true,
         photos: true,
       },
     });
