@@ -6,10 +6,11 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const { OAuth2Client } = require("google-auth-library");
 const { PrismaClient } = require("@prisma/client");
+const fs = require("fs").promises;
 
 const upload = require("./lib/multer");
 const repo = require("./users.pg");
-const { toPublicUrl } = require("./utils/publicUrl");
+const { uploadLocalFileToSupabase } = require("./services/supabaseStorage.service");
 
 const r = express.Router();
 const prisma = new PrismaClient();
@@ -22,15 +23,46 @@ function sign(userId) {
   });
 }
 
+function isAbsoluteUrl(url) {
+  return typeof url === "string" && /^https?:\/\//i.test(url);
+}
+
+function buildFullUrl(req, url) {
+  if (!url) return null;
+
+  if (isAbsoluteUrl(url)) return url;
+
+  const base =
+    process.env.PUBLIC_BACKEND_URL ||
+    process.env.BACKEND_PUBLIC_URL ||
+    process.env.RENDER_EXTERNAL_URL ||
+    `${req.protocol}://${req.get("host")}`;
+
+  const cleanBase = String(base).replace(/\/$/, "");
+  const cleanPath = String(url).startsWith("/") ? String(url) : `/${url}`;
+
+  return `${cleanBase}${cleanPath}`;
+}
+
+async function safeDeleteLocalFile(localPath) {
+  try {
+    if (localPath) await fs.unlink(localPath);
+  } catch (e) {
+    console.warn("No se pudo borrar archivo temporal:", e.message);
+  }
+}
+
 function normalizeUserForResponse(req, user) {
   if (!user) return null;
+
+  const avatarUrl = buildFullUrl(req, user.avatarUrl);
 
   return {
     id: user.id,
     email: user.email,
     name: user.name,
-    avatarUrl: toPublicUrl(req, user.avatarUrl),
-    avatar_url: toPublicUrl(req, user.avatarUrl),
+    avatarUrl,
+    avatar_url: avatarUrl,
   };
 }
 
@@ -95,11 +127,8 @@ r.post("/register", async (req, res) => {
       passwordHash: hash,
     });
 
-    const token = sign(u.id);
-
     return res.json({
       success: true,
-      token,
       user: {
         id: u.id,
         email: u.email,
@@ -107,7 +136,6 @@ r.post("/register", async (req, res) => {
         avatarUrl: null,
         avatar_url: null,
       },
-      isNewUser: true,
     });
   } catch (e) {
     console.error("ERROR /auth/register:", e);
@@ -154,7 +182,6 @@ r.post("/login", async (req, res) => {
     return res.json({
       token,
       user: userWithAvatar,
-      isNewUser: false,
     });
   } catch (e) {
     console.error("ERROR /auth/login:", e);
@@ -190,7 +217,6 @@ r.post("/google", async (req, res) => {
     const name = payload.name || "";
 
     let u = await repo.findByProvider(provider, providerId);
-    let isNewUser = false;
 
     if (!u) {
       const existing = email ? await repo.findByEmail(email) : null;
@@ -198,7 +224,6 @@ r.post("/google", async (req, res) => {
       if (existing) {
         await repo.linkProvider(existing.id, provider, providerId);
         u = existing;
-        isNewUser = false;
       } else {
         const created = await repo.createSocial({
           name,
@@ -207,7 +232,6 @@ r.post("/google", async (req, res) => {
 
         await repo.linkProvider(created.id, provider, providerId);
         u = created;
-        isNewUser = true;
       }
     }
 
@@ -217,7 +241,6 @@ r.post("/google", async (req, res) => {
     return res.json({
       token,
       user: userWithAvatar,
-      isNewUser,
     });
   } catch (e) {
     console.error("❌ ERROR /auth/google:", e);
@@ -276,6 +299,8 @@ r.patch("/profile", async (req, res) => {
    POST /auth/profile-photo
 ========================= */
 r.post("/profile-photo", upload.single("image"), async (req, res) => {
+  const tempPhotoPath = req.file?.path || null;
+
   try {
     const { userId } = req.body || {};
 
@@ -291,8 +316,29 @@ r.post("/profile-photo", upload.single("image"), async (req, res) => {
       });
     }
 
-    const relativeUrl = `/uploads/${req.file.filename}`;
-    const publicUrl = toPublicUrl(req, relativeUrl);
+    const user = await prisma.usuario.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        error: "Usuario no encontrado",
+      });
+    }
+
+    const uploaded = await uploadLocalFileToSupabase({
+      localPath: tempPhotoPath,
+      folder: "avatars",
+      userId,
+      fileName: req.file.originalname || req.file.filename,
+    });
+
+    const publicUrl = uploaded.publicUrl;
+
+    console.log("[AUTH] avatar subido a Supabase:", publicUrl);
 
     const updatedUser = await prisma.usuario.update({
       where: { id: userId },
@@ -319,6 +365,8 @@ r.post("/profile-photo", upload.single("image"), async (req, res) => {
       error: "No se pudo actualizar la foto de perfil",
       detail: e.message,
     });
+  } finally {
+    await safeDeleteLocalFile(tempPhotoPath);
   }
 });
 
