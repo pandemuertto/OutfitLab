@@ -1618,7 +1618,10 @@
 // });
 
 // frontend/app/(tabs)/calendario.tsx
-import React, { useState, useEffect } from "react";
+
+// frontend/app/(tabs)/calendario.tsx
+
+import React, { useCallback, useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -1634,6 +1637,8 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
+import { useFocusEffect } from "expo-router";
+
 import { useAuth } from "../../src/contexts/auth";
 import {
   getUserEvents,
@@ -1644,7 +1649,6 @@ import {
 } from "../../src/services/calendar.service";
 import { getUserOutfits } from "../../src/services/outfits.service";
 import { getUserClothes, Prenda } from "../../src/services/clothingServie";
-import { normalizeImageUrl } from "../../src/utils/imageUrl";
 
 const palette = {
   bg: "#EEF3F7",
@@ -1662,6 +1666,26 @@ const palette = {
 
 type CalendarItemType = "event" | "trip";
 
+function SafeClothImage({
+  uri,
+  style,
+  iconSize = 24,
+}: {
+  uri?: string | null;
+  style: any;
+  iconSize?: number;
+}) {
+  if (!uri || typeof uri !== "string") {
+    return (
+      <View style={[style, styles.imagePlaceholder]}>
+        <Ionicons name="image-outline" size={iconSize} color={palette.lightMuted} />
+      </View>
+    );
+  }
+
+  return <Image source={{ uri }} style={style} />;
+}
+
 const getDaysInMonth = (date: Date) => {
   const year = date.getFullYear();
   const month = date.getMonth();
@@ -1678,6 +1702,7 @@ const getDaysInMonth = (date: Date) => {
 
   for (let i = 1; i <= lastDay.getDate(); i++) {
     const currentDate = new Date(year, month, i);
+
     days.push({
       date: currentDate,
       dayNumber: i,
@@ -1687,12 +1712,6 @@ const getDaysInMonth = (date: Date) => {
 
   return days;
 };
-
-function getClothImageUrl(cloth?: any): string | null {
-  if (!cloth) return null;
-
-  return normalizeImageUrl(cloth.imageUrl || cloth.image_url);
-}
 
 const TimePickerModal = ({
   visible,
@@ -1713,8 +1732,9 @@ const TimePickerModal = ({
     if (currentTime) {
       const [time, period] = currentTime.split(" ");
       const [hour, minute] = time.split(":");
-      setSelectedHour(hour);
-      setSelectedMinute(minute);
+
+      setSelectedHour(hour || "12");
+      setSelectedMinute(minute || "00");
       setSelectedPeriod(period || "AM");
     }
   }, [currentTime]);
@@ -1722,6 +1742,7 @@ const TimePickerModal = ({
   const hours = Array.from({ length: 12 }, (_, i) =>
     (i + 1).toString().padStart(2, "0")
   );
+
   const minutes = ["00", "15", "30", "45"];
 
   const handleConfirm = () => {
@@ -1738,6 +1759,7 @@ const TimePickerModal = ({
           <View style={styles.timePickerContainer}>
             <View style={styles.pickerColumn}>
               <Text style={styles.pickerLabel}>Hora</Text>
+
               <ScrollView
                 style={styles.pickerScroll}
                 showsVerticalScrollIndicator={false}
@@ -1766,6 +1788,7 @@ const TimePickerModal = ({
 
             <View style={styles.pickerColumn}>
               <Text style={styles.pickerLabel}>Minuto</Text>
+
               <ScrollView
                 style={styles.pickerScroll}
                 showsVerticalScrollIndicator={false}
@@ -1782,8 +1805,7 @@ const TimePickerModal = ({
                     <Text
                       style={[
                         styles.pickerItemText,
-                        selectedMinute === minute &&
-                          styles.pickerItemTextSelected,
+                        selectedMinute === minute && styles.pickerItemTextSelected,
                       ]}
                     >
                       {minute}
@@ -1795,6 +1817,7 @@ const TimePickerModal = ({
 
             <View style={styles.pickerColumn}>
               <Text style={styles.pickerLabel}>Periodo</Text>
+
               {["AM", "PM"].map((period) => (
                 <TouchableOpacity
                   key={period}
@@ -1807,8 +1830,7 @@ const TimePickerModal = ({
                   <Text
                     style={[
                       styles.periodButtonText,
-                      selectedPeriod === period &&
-                        styles.periodButtonTextSelected,
+                      selectedPeriod === period && styles.periodButtonTextSelected,
                     ]}
                   >
                     {period}
@@ -1825,6 +1847,7 @@ const TimePickerModal = ({
             >
               <Text style={styles.pickerButtonTextCancel}>Cancelar</Text>
             </TouchableOpacity>
+
             <TouchableOpacity
               style={[styles.pickerButton, styles.pickerButtonConfirm]}
               onPress={handleConfirm}
@@ -1854,8 +1877,12 @@ const DatePickerModal = ({
 
   useEffect(() => {
     if (currentDate) {
-      setSelectedDate(new Date(currentDate));
-      setCurrentMonth(new Date(currentDate));
+      const parsedDate = new Date(currentDate);
+
+      if (!isNaN(parsedDate.getTime())) {
+        setSelectedDate(parsedDate);
+        setCurrentMonth(parsedDate);
+      }
     }
   }, [currentDate]);
 
@@ -1919,6 +1946,7 @@ const DatePickerModal = ({
     const year = selectedDate.getFullYear();
     const month = String(selectedDate.getMonth() + 1).padStart(2, "0");
     const day = String(selectedDate.getDate()).padStart(2, "0");
+
     onSelect(`${year}-${month}-${day}`);
     onClose();
   };
@@ -1931,21 +1959,15 @@ const DatePickerModal = ({
 
           <View style={styles.datePickerHeader}>
             <TouchableOpacity onPress={handlePrevMonth}>
-              <Ionicons
-                name="chevron-back"
-                size={24}
-                color={palette.primary}
-              />
+              <Ionicons name="chevron-back" size={24} color={palette.primary} />
             </TouchableOpacity>
+
             <Text style={styles.datePickerMonth}>
               {monthNames[currentMonth.getMonth()]} {currentMonth.getFullYear()}
             </Text>
+
             <TouchableOpacity onPress={handleNextMonth}>
-              <Ionicons
-                name="chevron-forward"
-                size={24}
-                color={palette.primary}
-              />
+              <Ionicons name="chevron-forward" size={24} color={palette.primary} />
             </TouchableOpacity>
           </View>
 
@@ -1989,6 +2011,7 @@ const DatePickerModal = ({
             >
               <Text style={styles.pickerButtonTextCancel}>Cancelar</Text>
             </TouchableOpacity>
+
             <TouchableOpacity
               style={[styles.pickerButton, styles.pickerButtonConfirm]}
               onPress={handleConfirm}
@@ -2012,18 +2035,19 @@ export default function CalendarioScreen() {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [trips, setTrips] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(false);
+
   const [modalVisible, setModalVisible] = useState(false);
   const [modalType, setModalType] = useState<CalendarItemType>("event");
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(
-    null
-  );
+  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
+
   const [userOutfits, setUserOutfits] = useState<any[]>([]);
   const [userClothes, setUserClothes] = useState<Prenda[]>([]);
-  const [selectedClothesEvent, setSelectedClothesEvent] = useState<string[]>(
-    []
-  );
+  const [loadingClothes, setLoadingClothes] = useState(false);
+
+  const [selectedClothesEvent, setSelectedClothesEvent] = useState<string[]>([]);
   const [selectedClothesTrip, setSelectedClothesTrip] = useState<string[]>([]);
+
   const [showClothesPickerEvent, setShowClothesPickerEvent] = useState(false);
   const [showClothesPickerTrip, setShowClothesPickerTrip] = useState(false);
   const [showPackedListModal, setShowPackedListModal] = useState(false);
@@ -2064,15 +2088,6 @@ export default function CalendarioScreen() {
     setCalendarDays(getDaysInMonth(currentMonth));
   }, [currentMonth]);
 
-  useEffect(() => {
-    if (user?.id) {
-      loadEvents();
-      loadTrips();
-      loadOutfits();
-      loadUserClothes();
-    }
-  }, [user?.id, currentMonth]);
-
   const loadEvents = async () => {
     if (!user?.id) return;
 
@@ -2081,7 +2096,7 @@ export default function CalendarioScreen() {
     try {
       const month = currentMonth.getMonth() + 1;
       const year = currentMonth.getFullYear();
-      const data = await getUserEvents(user.id, month, year);
+      const data = await getUserEvents(String(user.id), month, year);
       const normalEvents = data.filter((e) => !(e as any).isTrip);
 
       setEvents(normalEvents);
@@ -2096,7 +2111,7 @@ export default function CalendarioScreen() {
     if (!user?.id) return;
 
     try {
-      const data = await getUserEvents(user.id);
+      const data = await getUserEvents(String(user.id));
       const tripsData = data.filter((e) => (e as any).isTrip);
 
       setTrips(tripsData);
@@ -2109,22 +2124,72 @@ export default function CalendarioScreen() {
     if (!user?.id) return;
 
     try {
-      const data = await getUserOutfits(user.id);
-      setUserOutfits(data);
+      const data = await getUserOutfits(String(user.id));
+      setUserOutfits(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error("Error cargando outfits:", error);
     }
   };
 
   const loadUserClothes = async () => {
-    if (!user?.id) return;
+    if (!user?.id) {
+      console.log("📅 Calendario: todavía no hay user.id");
+      return [];
+    }
+
+    setLoadingClothes(true);
 
     try {
-      const data = await getUserClothes(user.id);
-      setUserClothes(data);
+      const data = await getUserClothes(String(user.id));
+      const clothes = Array.isArray(data) ? data : [];
+
+      console.log(
+        "📅 Prendas cargadas en calendario:",
+        clothes.map((item) => ({
+          id: item.id,
+          imageUrl: item.imageUrl,
+          type: item.type,
+          category: item.category,
+        }))
+      );
+
+      setUserClothes(clothes);
+      return clothes;
     } catch (error) {
-      console.error("Error cargando prendas:", error);
+      console.error("Error cargando prendas en calendario:", error);
+      Alert.alert("Error", "No se pudieron cargar las prendas del armario.");
+      setUserClothes([]);
+      return [];
+    } finally {
+      setLoadingClothes(false);
     }
+  };
+
+  useEffect(() => {
+    if (user?.id) {
+      loadEvents();
+      loadTrips();
+      loadOutfits();
+      loadUserClothes();
+    }
+  }, [user?.id, currentMonth]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (user?.id) {
+        loadUserClothes();
+      }
+    }, [user?.id])
+  );
+
+  const openClothesPickerEvent = async () => {
+    await loadUserClothes();
+    setShowClothesPickerEvent(true);
+  };
+
+  const openClothesPickerTrip = async () => {
+    await loadUserClothes();
+    setShowClothesPickerTrip(true);
   };
 
   const handlePrevMonth = () => {
@@ -2235,7 +2300,7 @@ export default function CalendarioScreen() {
           Alert.alert("Éxito", "Evento actualizado");
         } else {
           await createEvent({
-            userId: user.id,
+            userId: String(user.id),
             title: formTitle,
             description: formDescription || undefined,
             date: selectedDate,
@@ -2282,7 +2347,7 @@ export default function CalendarioScreen() {
           Alert.alert("Éxito", "Viaje actualizado");
         } else {
           await createEvent({
-            userId: user.id,
+            userId: String(user.id),
             title: formTitle,
             description: formDescription || undefined,
             destination: formDestination,
@@ -2308,20 +2373,25 @@ export default function CalendarioScreen() {
   const handleDeleteEvent = async () => {
     if (!selectedEvent) return;
 
+    const deleteSelected = async () => {
+      try {
+        await deleteEvent(selectedEvent.id);
+        Alert.alert("Éxito", "Elemento eliminado");
+        setModalVisible(false);
+
+        if (modalType === "event") loadEvents();
+        else loadTrips();
+      } catch (error) {
+        console.error("Error eliminando:", error);
+        Alert.alert("Error", "No se pudo eliminar");
+      }
+    };
+
     if (Platform.OS === "web") {
       const confirm = window.confirm("¿Eliminar este elemento?");
 
       if (confirm) {
-        try {
-          await deleteEvent(selectedEvent.id);
-          Alert.alert("Éxito", "Elemento eliminado");
-          setModalVisible(false);
-          if (modalType === "event") loadEvents();
-          else loadTrips();
-        } catch (error) {
-          console.error("Error eliminando:", error);
-          Alert.alert("Error", "No se pudo eliminar");
-        }
+        await deleteSelected();
       }
     } else {
       Alert.alert("Eliminar", "¿Estás seguro?", [
@@ -2329,18 +2399,7 @@ export default function CalendarioScreen() {
         {
           text: "Eliminar",
           style: "destructive",
-          onPress: async () => {
-            try {
-              await deleteEvent(selectedEvent.id);
-              Alert.alert("Éxito", "Elemento eliminado");
-              setModalVisible(false);
-              if (modalType === "event") loadEvents();
-              else loadTrips();
-            } catch (error) {
-              console.error("Error eliminando:", error);
-              Alert.alert("Error", "No se pudo eliminar");
-            }
-          },
+          onPress: deleteSelected,
         },
       ]);
     }
@@ -2362,35 +2421,63 @@ export default function CalendarioScreen() {
     });
   };
 
-  const renderClothImage = (
-    cloth: any,
-    imageStyle: any,
-    key?: string | number
+  const renderClothesPickerContent = (
+    selectedClothes: string[],
+    setSelectedClothes: React.Dispatch<React.SetStateAction<string[]>>
   ) => {
-    const imageUri = getClothImageUrl(cloth);
-
-    if (!imageUri) {
+    if (loadingClothes) {
       return (
-        <View key={key} style={[imageStyle, styles.imageFallback]}>
-          <Ionicons name="image-outline" size={16} color={palette.lightMuted} />
+        <View style={styles.noClothesContainer}>
+          <ActivityIndicator size="large" color={palette.primary} />
+          <Text style={styles.noClothesText}>Cargando prendas...</Text>
+        </View>
+      );
+    }
+
+    if (userClothes.length === 0) {
+      return (
+        <View style={styles.noClothesContainer}>
+          <Ionicons name="shirt-outline" size={48} color={palette.lightMuted} />
+          <Text style={styles.noClothesText}>
+            No se encontraron prendas. Ve a Armario y vuelve a intentar.
+          </Text>
         </View>
       );
     }
 
     return (
-      <Image
-        key={key}
-        source={{ uri: imageUri }}
-        style={imageStyle}
-        resizeMode="cover"
-        onError={(error) => {
-          console.log("❌ Error cargando imagen en calendario:", {
-            clothId: cloth?.id,
-            imageUri,
-            nativeEvent: error.nativeEvent,
-          });
-        }}
-      />
+      <ScrollView style={styles.clothesGrid} showsVerticalScrollIndicator={false}>
+        <View style={styles.clothesGridInner}>
+          {userClothes.map((cloth) => {
+            const clothId = String(cloth.id);
+            const isSelected = selectedClothes.includes(clothId);
+
+            return (
+              <TouchableOpacity
+                key={cloth.id}
+                style={[styles.clothItem, isSelected && styles.clothItemSelected]}
+                onPress={() => {
+                  if (isSelected) {
+                    setSelectedClothes((prev) =>
+                      prev.filter((id) => id !== clothId)
+                    );
+                  } else {
+                    setSelectedClothes((prev) => [...prev, clothId]);
+                  }
+                }}
+              >
+                <SafeClothImage uri={cloth.imageUrl} style={styles.clothImage} />
+
+                {isSelected && (
+                  <View style={styles.clothCheckmark}>
+                    <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+                  </View>
+                )}
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </ScrollView>
     );
   };
 
@@ -2407,8 +2494,9 @@ export default function CalendarioScreen() {
           style={styles.hero}
         >
           <Text style={styles.heroTitle}>Calendario</Text>
+
           <Text style={styles.heroSubtitle}>
-            Organiza eventos y viajes con el mismo estilo de CLOSI.
+            Organiza eventos y viajes con el mismo estilo de Closi.
           </Text>
         </LinearGradient>
 
@@ -2461,16 +2549,11 @@ export default function CalendarioScreen() {
             <>
               <View style={styles.monthSelector}>
                 <TouchableOpacity onPress={handlePrevMonth}>
-                  <Ionicons
-                    name="chevron-back"
-                    size={22}
-                    color={palette.primary}
-                  />
+                  <Ionicons name="chevron-back" size={22} color={palette.primary} />
                 </TouchableOpacity>
 
                 <Text style={styles.monthText}>
-                  {monthNames[currentMonth.getMonth()]}{" "}
-                  {currentMonth.getFullYear()}
+                  {monthNames[currentMonth.getMonth()]} {currentMonth.getFullYear()}
                 </Text>
 
                 <TouchableOpacity onPress={handleNextMonth}>
@@ -2498,8 +2581,7 @@ export default function CalendarioScreen() {
                       style={[
                         styles.calendarDay,
                         dayData?.isToday && styles.todayDay,
-                        selectedDay === dayData?.dayNumber &&
-                          styles.selectedDay,
+                        selectedDay === dayData?.dayNumber && styles.selectedDay,
                       ]}
                       onPress={() => handleDayPress(dayData)}
                       disabled={!dayData}
@@ -2517,9 +2599,7 @@ export default function CalendarioScreen() {
                             {dayData.dayNumber}
                           </Text>
 
-                          {hasEventOnDay(dayData) && (
-                            <View style={styles.eventDot} />
-                          )}
+                          {hasEventOnDay(dayData) && <View style={styles.eventDot} />}
                         </>
                       )}
                     </TouchableOpacity>
@@ -2545,9 +2625,7 @@ export default function CalendarioScreen() {
 
                       if (!isNaN(dateVal.getTime())) {
                         dayNumber = dateVal.getDate();
-                        monthName = monthNames[
-                          dateVal.getMonth()
-                        ].toLowerCase();
+                        monthName = monthNames[dateVal.getMonth()].toLowerCase();
                       }
                     }
 
@@ -2561,18 +2639,14 @@ export default function CalendarioScreen() {
                           setFormDescription(event.description || "");
                           setFormStartTime(event.startTime || "");
                           setFormEndTime(event.endTime || "");
-                          setSelectedClothesEvent(
-                            (event as any).selectedClothes || []
-                          );
+                          setSelectedClothesEvent((event as any).selectedClothes || []);
 
                           if (event.date) {
                             const d = new Date(event.date);
                             const year = d.getFullYear();
-                            const month = String(d.getMonth() + 1).padStart(
-                              2,
-                              "0"
-                            );
+                            const month = String(d.getMonth() + 1).padStart(2, "0");
                             const day = String(d.getDate()).padStart(2, "0");
+
                             setSelectedDate(`${year}-${month}-${day}`);
                           }
 
@@ -2582,9 +2656,7 @@ export default function CalendarioScreen() {
                       >
                         <View style={styles.eventTimeBadge}>
                           <Text style={styles.eventTimeText}>
-                            {dayNumber
-                              ? `${dayNumber} ${monthName}`
-                              : "Sin fecha"}
+                            {dayNumber ? `${dayNumber} ${monthName}` : "Sin fecha"}
                           </Text>
                         </View>
 
@@ -2604,16 +2676,17 @@ export default function CalendarioScreen() {
                                 .slice(0, 4)
                                 .map((clothId: string, idx: number) => {
                                   const cloth = userClothes.find(
-                                    (c) => c.id.toString() === clothId
+                                    (c) => String(c.id) === String(clothId)
                                   );
 
-                                  return cloth
-                                    ? renderClothImage(
-                                        cloth,
-                                        styles.clothPreviewImage,
-                                        idx
-                                      )
-                                    : null;
+                                  return cloth?.imageUrl ? (
+                                    <SafeClothImage
+                                      key={idx}
+                                      uri={cloth.imageUrl}
+                                      style={styles.clothPreviewImage}
+                                      iconSize={18}
+                                    />
+                                  ) : null;
                                 })}
 
                               {(event as any).selectedClothes.length > 4 && (
@@ -2637,11 +2710,7 @@ export default function CalendarioScreen() {
                   })
                 ) : (
                   <View style={styles.emptyStateCard}>
-                    <Ionicons
-                      name="calendar-outline"
-                      size={42}
-                      color="#C7CDD6"
-                    />
+                    <Ionicons name="calendar-outline" size={42} color="#C7CDD6" />
 
                     <Text style={styles.emptyText}>No hay eventos</Text>
 
@@ -2655,9 +2724,7 @@ export default function CalendarioScreen() {
                         end={{ x: 1, y: 0 }}
                         style={styles.emptyButton}
                       >
-                        <Text style={styles.emptyButtonText}>
-                          Agregar Evento
-                        </Text>
+                        <Text style={styles.emptyButtonText}>Agregar Evento</Text>
                       </LinearGradient>
                     </TouchableOpacity>
                   </View>
@@ -2673,14 +2740,12 @@ export default function CalendarioScreen() {
                 </View>
               ) : trips.length === 0 ? (
                 <View style={styles.emptyStateCardLarge}>
-                  <Ionicons
-                    name="airplane-outline"
-                    size={48}
-                    color="#C7CDD6"
-                  />
+                  <Ionicons name="airplane-outline" size={48} color="#C7CDD6" />
+
                   <Text style={styles.emptyTextLarge}>
                     No tienes viajes planificados
                   </Text>
+
                   <TouchableOpacity
                     onPress={handleAddTrip}
                     style={styles.emptyButtonWrap}
@@ -2691,9 +2756,7 @@ export default function CalendarioScreen() {
                       end={{ x: 1, y: 0 }}
                       style={styles.emptyButton}
                     >
-                      <Text style={styles.emptyButtonText}>
-                        Planificar Viaje
-                      </Text>
+                      <Text style={styles.emptyButtonText}>Planificar Viaje</Text>
                     </LinearGradient>
                   </TouchableOpacity>
                 </View>
@@ -2710,9 +2773,7 @@ export default function CalendarioScreen() {
                       setFormStartDate((trip as any).startDate || "");
                       setFormEndDate((trip as any).endDate || "");
                       setFormOutfitId(trip.outfitId || "");
-                      setSelectedClothesTrip(
-                        (trip as any).selectedClothes || []
-                      );
+                      setSelectedClothesTrip((trip as any).selectedClothes || []);
                       setModalType("trip");
                       setModalVisible(true);
                     }}
@@ -2721,9 +2782,7 @@ export default function CalendarioScreen() {
                       <View style={styles.tripBadge}>
                         <Text style={styles.tripBadgeText}>
                           {(trip as any).startDate && (trip as any).endDate
-                            ? `${(trip as any).startDate} - ${
-                                (trip as any).endDate
-                              }`
+                            ? `${(trip as any).startDate} - ${(trip as any).endDate}`
                             : "Próximamente"}
                         </Text>
                       </View>
@@ -2738,6 +2797,7 @@ export default function CalendarioScreen() {
                           size={14}
                           color={palette.secondary}
                         />
+
                         <Text style={styles.tripDetailText}>
                           {(trip as any).destination}
                         </Text>
@@ -2745,9 +2805,7 @@ export default function CalendarioScreen() {
                     ) : null}
 
                     {trip.description ? (
-                      <Text style={styles.tripDescription}>
-                        {trip.description}
-                      </Text>
+                      <Text style={styles.tripDescription}>{trip.description}</Text>
                     ) : null}
 
                     {(trip as any).selectedClothes &&
@@ -2764,6 +2822,7 @@ export default function CalendarioScreen() {
                           size={16}
                           color={palette.secondary}
                         />
+
                         <Text style={styles.packedItemsButtonText}>
                           {(trip as any).selectedClothes.length} empacados
                         </Text>
@@ -2788,12 +2847,11 @@ export default function CalendarioScreen() {
           style={styles.fab}
         >
           <Ionicons
-            name={
-              activeTab === "calendar" ? "calendar-outline" : "airplane-outline"
-            }
+            name={activeTab === "calendar" ? "calendar-outline" : "airplane-outline"}
             size={20}
             color="#FFFFFF"
           />
+
           <Text style={styles.fabText}>
             {activeTab === "calendar" ? "Nuevo Evento" : "Nuevo Viaje"}
           </Text>
@@ -2808,296 +2866,247 @@ export default function CalendarioScreen() {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <ScrollView showsVerticalScrollIndicator={false}>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>
-                  {selectedEvent
-                    ? modalType === "event"
-                      ? "Editar Evento"
-                      : "Editar Viaje"
-                    : modalType === "event"
-                    ? "Nuevo Evento"
-                    : "Nuevo Viaje"}
-                </Text>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>
+                {selectedEvent
+                  ? modalType === "event"
+                    ? "Editar Evento"
+                    : "Editar Viaje"
+                  : modalType === "event"
+                  ? "Nuevo Evento"
+                  : "Nuevo Viaje"}
+              </Text>
 
-                <TouchableOpacity onPress={() => setModalVisible(false)}>
-                  <Ionicons name="close" size={28} color={palette.text} />
-                </TouchableOpacity>
-              </View>
+              <TouchableOpacity onPress={() => setModalVisible(false)}>
+                <Ionicons name="close" size={28} color={palette.text} />
+              </TouchableOpacity>
+            </View>
 
-              {modalType === "event" ? (
-                <>
-                  <TouchableOpacity
-                    style={styles.dateSelector}
-                    onPress={() => setShowEventDatePicker(true)}
-                  >
-                    <Ionicons
-                      name="calendar-outline"
-                      size={20}
-                      color={palette.primary}
-                    />
-                    <Text style={styles.dateSelectorText}>
-                      {selectedDate || "Seleccionar fecha"}
-                    </Text>
-                  </TouchableOpacity>
-
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Título del evento"
-                    placeholderTextColor="#A3A3A3"
-                    value={formTitle}
-                    onChangeText={setFormTitle}
-                  />
-
-                  <TextInput
-                    style={[styles.input, styles.textArea]}
-                    placeholder="Descripción (opcional)"
-                    placeholderTextColor="#A3A3A3"
-                    value={formDescription}
-                    onChangeText={setFormDescription}
-                    multiline
-                    numberOfLines={3}
-                  />
-
-                  <View style={styles.timeRow}>
-                    <TouchableOpacity
-                      style={[styles.input, styles.timeInput]}
-                      onPress={() => setShowStartTimePicker(true)}
-                    >
-                      <Text
-                        style={
-                          formStartTime
-                            ? styles.timeText
-                            : styles.timePlaceholder
-                        }
-                      >
-                        {formStartTime || "HH:MM"}
-                      </Text>
-                    </TouchableOpacity>
-
-                    <Text style={styles.timeSeparator}>-</Text>
-
-                    <TouchableOpacity
-                      style={[styles.input, styles.timeInput]}
-                      onPress={() => setShowEndTimePicker(true)}
-                    >
-                      <Text
-                        style={
-                          formEndTime ? styles.timeText : styles.timePlaceholder
-                        }
-                      >
-                        {formEndTime || "HH:MM"}
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-
-                  <View style={styles.outfitSelector}>
-                    <Text style={styles.label}>Selecciona Prendas:</Text>
-                    <View style={styles.buttonsRow}>
-                      <TouchableOpacity
-                        style={styles.actionButton}
-                        onPress={() => {
-                          setShowClothesPickerEvent(true);
-                        }}
-                      >
-                        <Text style={styles.actionButtonText}>
-                          Seleccionar
-                        </Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[
-                          styles.actionButton,
-                          styles.actionButtonSecondary,
-                        ]}
-                        onPress={() => {
-                          Alert.alert("Sugerir", "Esta función coming soon");
-                        }}
-                      >
-                        <Text
-                          style={[
-                            styles.actionButtonText,
-                            styles.actionButtonTextSecondary,
-                          ]}
-                        >
-                          Sugerir
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-
-                    {selectedClothesEvent.length > 0 && (
-                      <View style={styles.selectedClothesList}>
-                        <ScrollView
-                          horizontal
-                          showsHorizontalScrollIndicator={false}
-                        >
-                          {selectedClothesEvent.map((clothId) => {
-                            const cloth = userClothes.find(
-                              (c) => c.id.toString() === clothId
-                            );
-
-                            return cloth
-                              ? renderClothImage(
-                                  cloth,
-                                  styles.selectedClothThumb,
-                                  clothId
-                                )
-                              : null;
-                          })}
-                        </ScrollView>
-                      </View>
-                    )}
-                  </View>
-                </>
-              ) : (
-                <>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Nombre del viaje"
-                    placeholderTextColor="#A3A3A3"
-                    value={formTitle}
-                    onChangeText={setFormTitle}
-                  />
-
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Destino"
-                    placeholderTextColor="#A3A3A3"
-                    value={formDestination}
-                    onChangeText={setFormDestination}
-                  />
-
-                  <View style={styles.dateRangeRow}>
-                    <TouchableOpacity
-                      style={[styles.input, styles.dateInput]}
-                      onPress={() => setShowStartDatePicker(true)}
-                    >
-                      <Text
-                        style={
-                          formStartDate
-                            ? styles.timeText
-                            : styles.timePlaceholder
-                        }
-                      >
-                        {formStartDate || "Inicio"}
-                      </Text>
-                    </TouchableOpacity>
-
-                    <Text style={styles.dateSeparator}>a</Text>
-
-                    <TouchableOpacity
-                      style={[styles.input, styles.dateInput]}
-                      onPress={() => setShowEndDatePicker(true)}
-                    >
-                      <Text
-                        style={
-                          formEndDate ? styles.timeText : styles.timePlaceholder
-                        }
-                      >
-                        {formEndDate || "Fin"}
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-
-                  <TextInput
-                    style={[styles.input, styles.textArea]}
-                    placeholder="Descripción del viaje (opcional)"
-                    placeholderTextColor="#A3A3A3"
-                    value={formDescription}
-                    onChangeText={setFormDescription}
-                    multiline
-                    numberOfLines={3}
-                  />
-
-                  <View style={styles.outfitSelector}>
-                    <Text style={styles.label}>
-                      Selecciona prendas a empacar:
-                    </Text>
-
-                    <View style={styles.buttonsRow}>
-                      <TouchableOpacity
-                        style={styles.actionButton}
-                        onPress={() => {
-                          setShowClothesPickerTrip(true);
-                        }}
-                      >
-                        <Text style={styles.actionButtonText}>
-                          Hacer maleta
-                        </Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        style={[
-                          styles.actionButton,
-                          styles.actionButtonSecondary,
-                        ]}
-                        onPress={() => {
-                          Alert.alert("Sugerir", "Esta función coming soon");
-                        }}
-                      >
-                        <Text
-                          style={[
-                            styles.actionButtonText,
-                            styles.actionButtonTextSecondary,
-                          ]}
-                        >
-                          Sugerir
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-
-                    {selectedClothesTrip.length > 0 && (
-                      <View style={styles.selectedClothesList}>
-                        <ScrollView
-                          horizontal
-                          showsHorizontalScrollIndicator={false}
-                        >
-                          {selectedClothesTrip.map((clothId) => {
-                            const cloth = userClothes.find(
-                              (c) => c.id.toString() === clothId
-                            );
-
-                            return cloth
-                              ? renderClothImage(
-                                  cloth,
-                                  styles.selectedClothThumb,
-                                  clothId
-                                )
-                              : null;
-                          })}
-                        </ScrollView>
-                      </View>
-                    )}
-                  </View>
-                </>
-              )}
-
-              <View style={styles.modalButtons}>
-                {selectedEvent ? (
-                  <TouchableOpacity
-                    style={styles.deleteButton}
-                    onPress={handleDeleteEvent}
-                  >
-                    <Text style={styles.deleteButtonText}>Eliminar</Text>
-                  </TouchableOpacity>
-                ) : null}
-
+            {modalType === "event" ? (
+              <>
                 <TouchableOpacity
-                  style={styles.saveWrap}
-                  onPress={handleSaveEvent}
+                  style={styles.dateSelector}
+                  onPress={() => setShowEventDatePicker(true)}
                 >
-                  <LinearGradient
-                    colors={["#4A6FA5", "#8FB8A8"]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={styles.saveButton}
-                  >
-                    <Text style={styles.saveButtonText}>
-                      {selectedEvent ? "Actualizar" : "Guardar"}
-                    </Text>
-                  </LinearGradient>
+                  <Ionicons name="calendar-outline" size={20} color={palette.primary} />
+
+                  <Text style={styles.dateSelectorText}>
+                    {selectedDate || "Seleccionar fecha"}
+                  </Text>
                 </TouchableOpacity>
-              </View>
-            </ScrollView>
+
+                <TextInput
+                  style={styles.input}
+                  placeholder="Título del evento"
+                  placeholderTextColor="#A3A3A3"
+                  value={formTitle}
+                  onChangeText={setFormTitle}
+                />
+
+                <TextInput
+                  style={[styles.input, styles.textArea]}
+                  placeholder="Descripción (opcional)"
+                  placeholderTextColor="#A3A3A3"
+                  value={formDescription}
+                  onChangeText={setFormDescription}
+                  multiline
+                  numberOfLines={3}
+                />
+
+                <View style={styles.timeRow}>
+                  <TouchableOpacity
+                    style={[styles.input, styles.timeInput]}
+                    onPress={() => setShowStartTimePicker(true)}
+                  >
+                    <Text style={formStartTime ? styles.timeText : styles.timePlaceholder}>
+                      {formStartTime || "HH:MM"}
+                    </Text>
+                  </TouchableOpacity>
+
+                  <Text style={styles.timeSeparator}>-</Text>
+
+                  <TouchableOpacity
+                    style={[styles.input, styles.timeInput]}
+                    onPress={() => setShowEndTimePicker(true)}
+                  >
+                    <Text style={formEndTime ? styles.timeText : styles.timePlaceholder}>
+                      {formEndTime || "HH:MM"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.outfitSelector}>
+                  <Text style={styles.label}>Selecciona prendas:</Text>
+
+                  <View style={styles.buttonsRow}>
+                    <TouchableOpacity
+                      style={styles.actionButton}
+                      onPress={openClothesPickerEvent}
+                    >
+                      <Text style={styles.actionButtonText}>Seleccionar</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.actionButton, styles.actionButtonSecondary]}
+                      onPress={() => {
+                        Alert.alert("Sugerir", "Esta función estará disponible pronto");
+                      }}
+                    >
+                      <Text
+                        style={[
+                          styles.actionButtonText,
+                          styles.actionButtonTextSecondary,
+                        ]}
+                      >
+                        Sugerir
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {selectedClothesEvent.length > 0 && (
+                    <View style={styles.selectedClothesList}>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                        {selectedClothesEvent.map((clothId) => {
+                          const cloth = userClothes.find(
+                            (c) => String(c.id) === String(clothId)
+                          );
+
+                          return cloth?.imageUrl ? (
+                            <SafeClothImage
+                              key={clothId}
+                              uri={cloth.imageUrl}
+                              style={styles.selectedClothThumb}
+                              iconSize={18}
+                            />
+                          ) : null;
+                        })}
+                      </ScrollView>
+                    </View>
+                  )}
+                </View>
+              </>
+            ) : (
+              <>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Nombre del viaje"
+                  placeholderTextColor="#A3A3A3"
+                  value={formTitle}
+                  onChangeText={setFormTitle}
+                />
+
+                <TextInput
+                  style={styles.input}
+                  placeholder="Destino"
+                  placeholderTextColor="#A3A3A3"
+                  value={formDestination}
+                  onChangeText={setFormDestination}
+                />
+
+                <View style={styles.dateRangeRow}>
+                  <TouchableOpacity
+                    style={[styles.input, styles.dateInput]}
+                    onPress={() => setShowStartDatePicker(true)}
+                  >
+                    <Text style={formStartDate ? styles.timeText : styles.timePlaceholder}>
+                      {formStartDate || "Inicio"}
+                    </Text>
+                  </TouchableOpacity>
+
+                  <Text style={styles.dateSeparator}>a</Text>
+
+                  <TouchableOpacity
+                    style={[styles.input, styles.dateInput]}
+                    onPress={() => setShowEndDatePicker(true)}
+                  >
+                    <Text style={formEndDate ? styles.timeText : styles.timePlaceholder}>
+                      {formEndDate || "Fin"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                <TextInput
+                  style={[styles.input, styles.textArea]}
+                  placeholder="Descripción del viaje (opcional)"
+                  placeholderTextColor="#A3A3A3"
+                  value={formDescription}
+                  onChangeText={setFormDescription}
+                  multiline
+                  numberOfLines={3}
+                />
+
+                <View style={styles.outfitSelector}>
+                  <Text style={styles.label}>Selecciona prendas a empacar:</Text>
+
+                  <View style={styles.buttonsRow}>
+                    <TouchableOpacity
+                      style={styles.actionButton}
+                      onPress={openClothesPickerTrip}
+                    >
+                      <Text style={styles.actionButtonText}>Hacer maleta</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.actionButton, styles.actionButtonSecondary]}
+                      onPress={() => {
+                        Alert.alert("Sugerir", "Esta función estará disponible pronto");
+                      }}
+                    >
+                      <Text
+                        style={[
+                          styles.actionButtonText,
+                          styles.actionButtonTextSecondary,
+                        ]}
+                      >
+                        Sugerir
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {selectedClothesTrip.length > 0 && (
+                    <View style={styles.selectedClothesList}>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                        {selectedClothesTrip.map((clothId) => {
+                          const cloth = userClothes.find(
+                            (c) => String(c.id) === String(clothId)
+                          );
+
+                          return cloth?.imageUrl ? (
+                            <SafeClothImage
+                              key={clothId}
+                              uri={cloth.imageUrl}
+                              style={styles.selectedClothThumb}
+                              iconSize={18}
+                            />
+                          ) : null;
+                        })}
+                      </ScrollView>
+                    </View>
+                  )}
+                </View>
+              </>
+            )}
+
+            <View style={styles.modalButtons}>
+              {selectedEvent ? (
+                <TouchableOpacity style={styles.deleteButton} onPress={handleDeleteEvent}>
+                  <Text style={styles.deleteButtonText}>Eliminar</Text>
+                </TouchableOpacity>
+              ) : null}
+
+              <TouchableOpacity style={styles.saveWrap} onPress={handleSaveEvent}>
+                <LinearGradient
+                  colors={["#4A6FA5", "#8FB8A8"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.saveButton}
+                >
+                  <Text style={styles.saveButtonText}>
+                    {selectedEvent ? "Actualizar" : "Guardar"}
+                  </Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -3146,72 +3155,14 @@ export default function CalendarioScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.clothesPickerModal}>
             <View style={styles.clothesPickerHeader}>
-              <Text style={styles.clothesPickerTitle}>Selecciona Prendas</Text>
+              <Text style={styles.clothesPickerTitle}>Selecciona prendas</Text>
+
               <TouchableOpacity onPress={() => setShowClothesPickerEvent(false)}>
                 <Ionicons name="close" size={24} color={palette.text} />
               </TouchableOpacity>
             </View>
 
-            {userClothes.length === 0 ? (
-              <View style={styles.noClothesContainer}>
-                <Ionicons
-                  name="shirt-outline"
-                  size={48}
-                  color={palette.lightMuted}
-                />
-                <Text style={styles.noClothesText}>
-                  No tienes prendas en tu armario
-                </Text>
-              </View>
-            ) : (
-              <ScrollView
-                style={styles.clothesGrid}
-                showsVerticalScrollIndicator={false}
-              >
-                <View style={styles.clothesGridInner}>
-                  {userClothes.map((cloth) => {
-                    const isSelected = selectedClothesEvent.includes(
-                      cloth.id.toString()
-                    );
-
-                    return (
-                      <TouchableOpacity
-                        key={cloth.id}
-                        style={[
-                          styles.clothItem,
-                          isSelected && styles.clothItemSelected,
-                        ]}
-                        onPress={() => {
-                          if (isSelected) {
-                            setSelectedClothesEvent(
-                              selectedClothesEvent.filter(
-                                (id) => id !== cloth.id.toString()
-                              )
-                            );
-                          } else {
-                            setSelectedClothesEvent([
-                              ...selectedClothesEvent,
-                              cloth.id.toString(),
-                            ]);
-                          }
-                        }}
-                      >
-                        {renderClothImage(cloth, styles.clothImage)}
-                        {isSelected && (
-                          <View style={styles.clothCheckmark}>
-                            <Ionicons
-                              name="checkmark"
-                              size={16}
-                              color="#FFFFFF"
-                            />
-                          </View>
-                        )}
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              </ScrollView>
-            )}
+            {renderClothesPickerContent(selectedClothesEvent, setSelectedClothesEvent)}
 
             <TouchableOpacity
               style={styles.doneButton}
@@ -3242,71 +3193,13 @@ export default function CalendarioScreen() {
               <Text style={styles.clothesPickerTitle}>
                 Selecciona prendas a empacar
               </Text>
+
               <TouchableOpacity onPress={() => setShowClothesPickerTrip(false)}>
                 <Ionicons name="close" size={24} color={palette.text} />
               </TouchableOpacity>
             </View>
 
-            {userClothes.length === 0 ? (
-              <View style={styles.noClothesContainer}>
-                <Ionicons
-                  name="shirt-outline"
-                  size={48}
-                  color={palette.lightMuted}
-                />
-                <Text style={styles.noClothesText}>
-                  No tienes prendas en tu armario
-                </Text>
-              </View>
-            ) : (
-              <ScrollView
-                style={styles.clothesGrid}
-                showsVerticalScrollIndicator={false}
-              >
-                <View style={styles.clothesGridInner}>
-                  {userClothes.map((cloth) => {
-                    const isSelected = selectedClothesTrip.includes(
-                      cloth.id.toString()
-                    );
-
-                    return (
-                      <TouchableOpacity
-                        key={cloth.id}
-                        style={[
-                          styles.clothItem,
-                          isSelected && styles.clothItemSelected,
-                        ]}
-                        onPress={() => {
-                          if (isSelected) {
-                            setSelectedClothesTrip(
-                              selectedClothesTrip.filter(
-                                (id) => id !== cloth.id.toString()
-                              )
-                            );
-                          } else {
-                            setSelectedClothesTrip([
-                              ...selectedClothesTrip,
-                              cloth.id.toString(),
-                            ]);
-                          }
-                        }}
-                      >
-                        {renderClothImage(cloth, styles.clothImage)}
-                        {isSelected && (
-                          <View style={styles.clothCheckmark}>
-                            <Ionicons
-                              name="checkmark"
-                              size={16}
-                              color="#FFFFFF"
-                            />
-                          </View>
-                        )}
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              </ScrollView>
-            )}
+            {renderClothesPickerContent(selectedClothesTrip, setSelectedClothesTrip)}
 
             <TouchableOpacity
               style={styles.doneButton}
@@ -3335,6 +3228,7 @@ export default function CalendarioScreen() {
           <View style={styles.packedListModal}>
             <View style={styles.packedListHeader}>
               <Text style={styles.packedListTitle}>Lista para viaje</Text>
+
               <TouchableOpacity onPress={() => setShowPackedListModal(false)}>
                 <Ionicons name="close" size={24} color={palette.text} />
               </TouchableOpacity>
@@ -3346,25 +3240,27 @@ export default function CalendarioScreen() {
               </Text>
             )}
 
-            <ScrollView
-              style={styles.packedListContent}
-              showsVerticalScrollIndicator={false}
-            >
-              {selectedTripForList &&
-              (selectedTripForList as any).selectedClothes ? (
+            <ScrollView style={styles.packedListContent} showsVerticalScrollIndicator={false}>
+              {selectedTripForList && (selectedTripForList as any).selectedClothes ? (
                 ((selectedTripForList as any).selectedClothes as string[]).map(
                   (clothId) => {
                     const cloth = userClothes.find(
-                      (c) => c.id.toString() === clothId
+                      (c) => String(c.id) === String(clothId)
                     );
 
                     return cloth ? (
                       <View key={clothId} style={styles.packedListItem}>
-                        {renderClothImage(cloth, styles.packedListImage)}
+                        <SafeClothImage
+                          uri={cloth.imageUrl}
+                          style={styles.packedListImage}
+                          iconSize={22}
+                        />
+
                         <View style={styles.packedListItemInfo}>
                           <Text style={styles.packedListItemText}>
                             {cloth.category || cloth.type || "Prenda"}
                           </Text>
+
                           {cloth.color && (
                             <Text style={styles.packedListItemDetail}>
                               {cloth.color}
@@ -3376,9 +3272,7 @@ export default function CalendarioScreen() {
                   }
                 )
               ) : (
-                <Text style={styles.noPackedItemsText}>
-                  No hay prendas empacadas
-                </Text>
+                <Text style={styles.noPackedItemsText}>No hay prendas empacadas</Text>
               )}
             </ScrollView>
           </View>
@@ -3692,19 +3586,19 @@ const styles = StyleSheet.create({
     marginTop: 6,
     lineHeight: 20,
   },
-  tripOutfit: {
+  packedItemsButton: {
     flexDirection: "row",
     alignItems: "center",
-    marginTop: 12,
-    paddingTop: 12,
+    marginTop: 8,
+    paddingTop: 8,
     borderTopWidth: 1,
     borderTopColor: palette.border,
   },
-  tripOutfitText: {
-    fontSize: 14,
-    color: palette.primary,
+  packedItemsButtonText: {
+    color: palette.secondary,
+    fontSize: 13,
     fontWeight: "600",
-    marginLeft: 6,
+    marginLeft: 4,
   },
   fabWrapper: {
     position: "absolute",
@@ -3832,29 +3726,6 @@ const styles = StyleSheet.create({
     color: palette.text,
     marginBottom: 12,
     fontWeight: "700",
-  },
-  outfitOption: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: palette.border,
-    marginRight: 10,
-    backgroundColor: "#FFFFFF",
-  },
-  outfitOptionSelected: {
-    backgroundColor: palette.primary,
-    borderColor: palette.primary,
-  },
-  outfitOptionText: {
-    color: palette.text,
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  outfitOptionTextSelected: {
-    color: "#FFFFFF",
-    fontSize: 13,
-    fontWeight: "600",
   },
   modalButtons: {
     flexDirection: "row",
@@ -4066,14 +3937,12 @@ const styles = StyleSheet.create({
     height: 50,
     borderRadius: 10,
     marginRight: 8,
-    backgroundColor: "#E5E7EB",
   },
   clothPreviewImage: {
     width: 36,
     height: 36,
     borderRadius: 8,
     marginRight: 4,
-    backgroundColor: "#E5E7EB",
   },
   moreClothesIndicator: {
     width: 36,
@@ -4139,12 +4008,11 @@ const styles = StyleSheet.create({
   clothImage: {
     width: "100%",
     height: "100%",
-    backgroundColor: "#E5E7EB",
   },
-  imageFallback: {
+  imagePlaceholder: {
+    backgroundColor: "#EEF3F7",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#E5E7EB",
   },
   clothCheckmark: {
     position: "absolute",
@@ -4208,7 +4076,6 @@ const styles = StyleSheet.create({
     height: 50,
     borderRadius: 10,
     marginRight: 12,
-    backgroundColor: "#E5E7EB",
   },
   packedListItemInfo: {
     flex: 1,
@@ -4228,19 +4095,5 @@ const styles = StyleSheet.create({
     color: palette.lightMuted,
     fontSize: 14,
     marginTop: 20,
-  },
-  packedItemsButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 8,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: palette.border,
-  },
-  packedItemsButtonText: {
-    color: palette.secondary,
-    fontSize: 13,
-    fontWeight: "600",
-    marginLeft: 4,
   },
 });
