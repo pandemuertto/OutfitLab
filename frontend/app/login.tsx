@@ -651,7 +651,7 @@ export default function LoginScreen() {
             >
               <View style={styles.logoRow}>
                 <Ionicons name="sparkles" size={28} color="#FFFFFF" />
-                <Text style={styles.logoText}>OutfitLab</Text>
+                <Text style={styles.logoText}>CLOSI</Text>
               </View>
 
               <Text style={styles.subtitle}>Tu moodboard de moda personal</Text>

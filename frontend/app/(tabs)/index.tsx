@@ -820,7 +820,7 @@ export default function HomeScreen() {
 
           <View style={styles.welcomeBadge}>
             <Ionicons name="sparkles" size={16} color="#FFFFFF" />
-            <Text style={styles.welcomeBadgeText}>Bienvenida a OutfitLab</Text>
+            <Text style={styles.welcomeBadgeText}>Bienvenida a CLOSI</Text>
           </View>
         </LinearGradient>
 

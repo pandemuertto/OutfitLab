@@ -1,13 +1,13 @@
 {
   "expo": {
-    "name": "outfit-lab",
+    "name": "Closi",
     "slug": "outfit-lab",
     "version": "1.0.0",
     "scheme": "outfitlab",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/closi_icon.png",
     "splash": {
-      "image": "./assets/images/splash-icon.png",
+      "image": "./assets/images/closi_splash.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
@@ -16,20 +16,20 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/icon.png",
+        "foregroundImage": "./assets/images/closi_adaptive_icon.png",
         "backgroundColor": "#E6F4FE"
       },
       "package": "com.pandemuerttoo.outfitlab"
     },
     "web": {
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/closi_favicon.png"
     },
     "plugins": [
       "expo-router",
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/splash-icon.png",
+          "image": "./assets/images/closi_splash.png",
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
         }

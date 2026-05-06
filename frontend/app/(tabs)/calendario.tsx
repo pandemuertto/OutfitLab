@@ -2408,7 +2408,7 @@ export default function CalendarioScreen() {
         >
           <Text style={styles.heroTitle}>Calendario</Text>
           <Text style={styles.heroSubtitle}>
-            Organiza eventos y viajes con el mismo estilo de OutfitLab.
+            Organiza eventos y viajes con el mismo estilo de CLOSI.
           </Text>
         </LinearGradient>
 

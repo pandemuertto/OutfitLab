@@ -30,7 +30,7 @@ export default function Ayuda() {
   const contactSupport = () => {
     Alert.alert(
       "Soporte",
-      "Por ahora puedes reportar problemas directamente con el equipo de OutfitLab."
+      "Por ahora puedes reportar problemas directamente con el equipo de CLOSI."
     );
   };
 
@@ -56,7 +56,7 @@ export default function Ayuda() {
 
         <Text style={styles.title}>Ayuda y soporte</Text>
         <Text style={styles.subtitle}>
-          Encuentra respuestas rápidas sobre OutfitLab
+          Encuentra respuestas rápidas sobre CLOSI
         </Text>
       </LinearGradient>
 

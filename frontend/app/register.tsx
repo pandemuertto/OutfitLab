@@ -891,7 +891,7 @@ export default function RegisterScreen() {
           >
             <View style={styles.logoRow}>
               <Ionicons name="sparkles" size={26} color="#FFFFFF" />
-              <Text style={styles.logoText}>OutfitLab</Text>
+              <Text style={styles.logoText}>CLOSI</Text>
             </View>
 
             <Text style={styles.subtitle}>Crea tu cuenta y descubre tu estilo</Text>

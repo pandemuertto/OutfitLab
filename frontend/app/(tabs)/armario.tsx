@@ -741,7 +741,7 @@ export default function ArmarioScreen() {
                 </View>
 
                 <Text style={styles.viewLabel}>
-                  {viewMode === "masonry" ? "Vista Pinterest" : "Vista Grid"}
+                  {viewMode === "masonry" ? "" : ""}
                 </Text>
               </View>
 
