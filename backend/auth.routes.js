@@ -66,6 +66,16 @@ function normalizeUserForResponse(req, user) {
   };
 }
 
+function normalizeEmail(email) {
+  return String(email || "").trim().toLowerCase();
+}
+
+function isValidEmail(email) {
+  const cleanEmail = normalizeEmail(email);
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+  return emailRegex.test(cleanEmail);
+}
+
 async function getUserWithAvatar(req, user) {
   try {
     const dbUser = await prisma.usuario.findUnique({
@@ -107,10 +117,23 @@ async function getUserWithAvatar(req, user) {
 ========================= */
 r.post("/register", async (req, res) => {
   try {
-    const { email, password, name } = req.body || {};
+    const { password, name } = req.body || {};
+    const email = normalizeEmail(req.body?.email);
 
     if (!email || !password) {
-      return res.status(400).json({ error: "faltan datos" });
+      return res.status(400).json({ error: "Faltan datos" });
+    }
+
+    if (!isValidEmail(email)) {
+      return res.status(400).json({
+        error: "Correo inválido. Ingresa un correo válido, por ejemplo nombre@gmail.com",
+      });
+    }
+
+    if (String(password).length < 6) {
+      return res.status(400).json({
+        error: "La contraseña debe tener al menos 6 caracteres",
+      });
     }
 
     const exists = await repo.findByEmail(email);
@@ -127,14 +150,17 @@ r.post("/register", async (req, res) => {
       passwordHash: hash,
     });
 
+    const token = sign(u.id);
+
     return res.json({
       success: true,
+      token,
       user: {
         id: u.id,
         email: u.email,
         name: u.name,
-        avatarUrl: null,
-        avatar_url: null,
+        avatarUrl: u.avatarUrl || null,
+        avatar_url: u.avatarUrl || null,
       },
     });
   } catch (e) {

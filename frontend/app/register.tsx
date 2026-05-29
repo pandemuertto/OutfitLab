@@ -647,6 +647,56 @@ import { useAuth } from "../src/contexts/auth";
 
 WebBrowser.maybeCompleteAuthSession();
 
+function normalizeEmail(email: string) {
+  return email.trim().toLowerCase();
+}
+
+function isValidEmail(email: string) {
+  const cleanEmail = normalizeEmail(email);
+
+  // Reglas básicas:
+  // - No espacios
+  // - Tiene un @
+  // - Tiene texto antes y después del @
+  // - Tiene punto después del @
+  // - Dominio final de mínimo 2 caracteres
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+  return emailRegex.test(cleanEmail);
+}
+
+function getEmailError(email: string) {
+  const cleanEmail = normalizeEmail(email);
+
+  if (!cleanEmail) {
+    return "El correo electrónico es obligatorio";
+  }
+
+  if (cleanEmail.includes(" ")) {
+    return "El correo no debe contener espacios";
+  }
+
+  if (!cleanEmail.includes("@")) {
+    return "El correo debe contener @";
+  }
+
+  const parts = cleanEmail.split("@");
+
+  if (parts.length !== 2 || !parts[0] || !parts[1]) {
+    return "El correo debe tener texto antes y después del @";
+  }
+
+  if (!parts[1].includes(".")) {
+    return "El dominio debe incluir un punto, por ejemplo gmail.com";
+  }
+
+  if (!isValidEmail(cleanEmail)) {
+    return "Ingresa un correo válido, por ejemplo nombre@gmail.com";
+  }
+
+  return "";
+}
+
 export default function RegisterScreen() {
   const { login } = useAuth();
 
@@ -657,6 +707,7 @@ export default function RegisterScreen() {
     confirmPassword: "",
   });
 
+  const [emailTouched, setEmailTouched] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -675,6 +726,9 @@ export default function RegisterScreen() {
     scopes: ["profile", "email"],
     redirectUri,
   });
+
+  const emailError = getEmailError(formData.email);
+  const shouldShowEmailError = emailTouched && Boolean(emailError);
 
   useEffect(() => {
     Animated.parallel([
@@ -714,6 +768,16 @@ export default function RegisterScreen() {
   }, [gResponse]);
 
   const handleChange = (field: string, value: string) => {
+    if (field === "email") {
+      // Evita espacios al inicio/final mientras escribe.
+      // También convierte a minúsculas para guardar consistente.
+      setFormData((prev) => ({
+        ...prev,
+        email: value.trim().toLowerCase(),
+      }));
+      return;
+    }
+
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
@@ -743,22 +807,31 @@ export default function RegisterScreen() {
   };
 
   const handleRegister = async () => {
-    if (
-      !formData.nombre.trim() ||
-      !formData.email.trim() ||
-      !formData.password ||
-      !formData.confirmPassword
-    ) {
+    setEmailTouched(true);
+
+    const nombre = formData.nombre.trim();
+    const email = normalizeEmail(formData.email);
+    const password = formData.password;
+    const confirmPassword = formData.confirmPassword;
+
+    if (!nombre || !email || !password || !confirmPassword) {
       Alert.alert("Error", "Por favor completa todos los campos");
       return;
     }
 
-    if (formData.password !== formData.confirmPassword) {
+    const emailValidationMessage = getEmailError(email);
+
+    if (emailValidationMessage) {
+      Alert.alert("Correo inválido", emailValidationMessage);
+      return;
+    }
+
+    if (password !== confirmPassword) {
       Alert.alert("Error", "Las contraseñas no coinciden");
       return;
     }
 
-    if (formData.password.length < 6) {
+    if (password.length < 6) {
       Alert.alert("Error", "La contraseña debe tener al menos 6 caracteres");
       return;
     }
@@ -766,29 +839,17 @@ export default function RegisterScreen() {
     try {
       setIsLoading(true);
 
-      const email = formData.email.trim().toLowerCase();
-      const password = formData.password;
-
       const registerData: any = await post("/auth/register", {
         email,
         password,
-        name: formData.nombre.trim(),
+        name: nombre,
       });
 
-      /**
-       * Caso ideal:
-       * El backend responde con user + token.
-       */
       if (registerData?.user?.id && registerData?.token) {
         await saveSessionAndGoToOnboarding(registerData);
         return;
       }
 
-      /**
-       * Respaldo:
-       * Si tu backend crea la cuenta pero NO devuelve token,
-       * hacemos login automático para obtener el token.
-       */
       const loginData: any = await post("/auth/login", {
         email,
         password,
@@ -841,10 +902,6 @@ export default function RegisterScreen() {
         data.token
       );
 
-      /**
-       * Si Google creó usuario nuevo, onboarding.
-       * Si Google era usuario existente, home.
-       */
       if (data?.isNewUser === true || data?.user?.isNewUser === true) {
         router.replace("/onboarding");
       } else {
@@ -954,25 +1011,41 @@ export default function RegisterScreen() {
               <View style={styles.fieldGroup}>
                 <Text style={styles.label}>Correo electrónico</Text>
 
-                <View style={styles.inputWrapper}>
+                <View
+                  style={[
+                    styles.inputWrapper,
+                    shouldShowEmailError && styles.inputWrapperError,
+                  ]}
+                >
                   <Ionicons
                     name="mail-outline"
                     size={20}
-                    color="#9CA3AF"
+                    color={shouldShowEmailError ? "#EF4444" : "#9CA3AF"}
                     style={styles.inputIcon}
                   />
 
                   <TextInput
                     value={formData.email}
                     onChangeText={(value) => handleChange("email", value)}
+                    onBlur={() => setEmailTouched(true)}
                     placeholder="tu@email.com"
                     placeholderTextColor="#9CA3AF"
                     keyboardType="email-address"
                     autoCapitalize="none"
                     autoCorrect={false}
+                    autoComplete="email"
+                    textContentType="emailAddress"
                     style={styles.input}
                   />
                 </View>
+
+                {shouldShowEmailError ? (
+                  <Text style={styles.helperErrorText}>{emailError}</Text>
+                ) : (
+                  <Text style={styles.helperText}>
+                    Ejemplo válido: nombre@gmail.com
+                  </Text>
+                )}
               </View>
 
               <View style={styles.fieldGroup}>
@@ -1060,9 +1133,7 @@ export default function RegisterScreen() {
                   {isLoading ? (
                     <ActivityIndicator color="#FFFFFF" />
                   ) : (
-                    <Text style={styles.submitButtonText}>
-                      Crear cuenta
-                    </Text>
+                    <Text style={styles.submitButtonText}>Crear cuenta</Text>
                   )}
                 </LinearGradient>
               </Pressable>
@@ -1189,6 +1260,12 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     paddingHorizontal: 14,
     height: 56,
+    borderWidth: 1,
+    borderColor: "transparent",
+  },
+  inputWrapperError: {
+    borderColor: "#EF4444",
+    backgroundColor: "#FEF2F2",
   },
   inputIcon: {
     marginRight: 10,
@@ -1197,6 +1274,17 @@ const styles = StyleSheet.create({
     flex: 1,
     color: "#1F2937",
     fontSize: 15,
+  },
+  helperText: {
+    color: "#9CA3AF",
+    fontSize: 12,
+    marginLeft: 4,
+  },
+  helperErrorText: {
+    color: "#EF4444",
+    fontSize: 12,
+    marginLeft: 4,
+    fontWeight: "600",
   },
   submitButtonOuter: {
     marginTop: 4,
