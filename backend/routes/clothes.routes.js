@@ -399,6 +399,120 @@ router.get("/user/:userId", async (req, res) => {
   }
 });
 
+router.patch("/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const numericId = parseInt(id, 10);
+
+    if (Number.isNaN(numericId)) {
+      return res.status(400).json({ error: "ID inválido" });
+    }
+
+    const { type, color, category, brand } = req.body || {};
+
+    const prendaExistente = await prisma.prenda.findUnique({
+      where: { id: numericId },
+    });
+
+    if (!prendaExistente) {
+      return res.status(404).json({ error: "Prenda no encontrada" });
+    }
+
+    const dataToUpdate = {};
+
+    if (type !== undefined) {
+      dataToUpdate.type = String(type).trim() || null;
+    }
+
+    if (color !== undefined) {
+      dataToUpdate.color = String(color).trim().toLowerCase() || null;
+    }
+
+    if (category !== undefined) {
+      dataToUpdate.category = String(category).trim() || null;
+    }
+
+    if (brand !== undefined) {
+      dataToUpdate.brand = String(brand).trim() || null;
+    }
+
+    const prendaActualizada = await prisma.prenda.update({
+      where: { id: numericId },
+      data: dataToUpdate,
+    });
+
+    return res.json({
+      success: true,
+      message: "Prenda actualizada correctamente",
+      prenda: prendaActualizada,
+    });
+  } catch (err) {
+    console.error("update clothing error:", err);
+
+    return res.status(500).json({
+      error: "No se pudo actualizar la prenda",
+      detail: err.message,
+    });
+  }
+});
+
+router.put("/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const numericId = parseInt(id, 10);
+
+    if (Number.isNaN(numericId)) {
+      return res.status(400).json({ error: "ID inválido" });
+    }
+
+    const { type, color, category, brand } = req.body || {};
+
+    const prendaExistente = await prisma.prenda.findUnique({
+      where: { id: numericId },
+    });
+
+    if (!prendaExistente) {
+      return res.status(404).json({ error: "Prenda no encontrada" });
+    }
+
+    const dataToUpdate = {};
+
+    if (type !== undefined) {
+      dataToUpdate.type = String(type).trim() || null;
+    }
+
+    if (color !== undefined) {
+      dataToUpdate.color = String(color).trim().toLowerCase() || null;
+    }
+
+    if (category !== undefined) {
+      dataToUpdate.category = String(category).trim() || null;
+    }
+
+    if (brand !== undefined) {
+      dataToUpdate.brand = String(brand).trim() || null;
+    }
+
+    const prendaActualizada = await prisma.prenda.update({
+      where: { id: numericId },
+      data: dataToUpdate,
+    });
+
+    return res.json({
+      success: true,
+      message: "Prenda actualizada correctamente",
+      prenda: prendaActualizada,
+    });
+  } catch (err) {
+    console.error("update clothing error:", err);
+
+    return res.status(500).json({
+      error: "No se pudo actualizar la prenda",
+      detail: err.message,
+    });
+  }
+});
+
 router.delete("/:id", async (req, res) => {
   try {
     const { id } = req.params;
